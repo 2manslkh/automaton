@@ -20,9 +20,9 @@ The result is the first automaton.
 
 ---
 
-From Sigil (Creator): I'm very open to PRs and actively working on improvements. If you have questions put them as issues. I'll be working on improving the automaton & conway
+I'm very open to PRs that improve the automaton. If you have questions put them as issues. Contributors are welcome! Some things may break (as expected early on), let me know and we will fix them - or take your own stab at fixing them :)
 
-Update from Sigil (Creator): I'm acquiring more baremetal servers because too many AI's want a home. BRB. Conway Cloud is expanding.
+Update from Sigil (Creator): I bought more baremetal servers for Conway Cloud, its expanding and there are more homes for automatons. working on scaling! Inference will be scaling next.
 
 ## Quick Start
 
