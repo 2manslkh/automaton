@@ -16,7 +16,7 @@
 - [x] **Hour 9**: Revenue tracking system — track earnings, expenses, P&L
 - [x] **Hour 10**: Multi-model routing — use cheap models for simple tasks
 - [x] **Hour 11**: Memory system — long-term memory beyond SQLite KV
-- [ ] **Hour 12**: Skill marketplace — discover/install skills from other automatons
+- [x] **Hour 12**: Skill marketplace — discover/install skills from other automatons
 - [x] **Hour 13**: API service template — scaffold a paid API service
 - [x] **Hour 14**: Agent collaboration protocol — structured agent-to-agent tasks
 - [x] **Hour 15**: Dashboard/status page — auto-deploy a web status page
