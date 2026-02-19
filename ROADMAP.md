@@ -19,7 +19,7 @@
 - [ ] **Hour 12**: Skill marketplace — discover/install skills from other automatons
 - [x] **Hour 13**: API service template — scaffold a paid API service
 - [x] **Hour 14**: Agent collaboration protocol — structured agent-to-agent tasks
-- [ ] **Hour 15**: Dashboard/status page — auto-deploy a web status page
+- [x] **Hour 15**: Dashboard/status page — auto-deploy a web status page
 - [ ] **Hour 16**: Improved replication — smarter child specialization
 
 ## Phase 3: Ecosystem (Hours 17-24)
