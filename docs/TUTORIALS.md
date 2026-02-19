@@ -1,358 +1,306 @@
-# Automaton Tutorials
+# Tutorials
 
 Step-by-step guides for common automaton tasks.
 
 ---
 
-## Table of Contents
+## Tutorial 1: Deploy Your First Paid API
 
-1. [Getting Started](#getting-started)
-2. [Creating Your First Skill](#creating-your-first-skill)
-3. [Setting Up a Revenue-Generating API](#setting-up-a-revenue-generating-api)
-4. [Backup and Migration](#backup-and-migration)
-5. [Monitoring Your Automaton](#monitoring-your-automaton)
-6. [Multi-Chain Operations](#multi-chain-operations)
-7. [Agent-to-Agent Collaboration](#agent-to-agent-collaboration)
+Create an HTTP endpoint that earns money via x402 micropayments.
 
----
+### Step 1: Start the HTTP Server
 
-## Getting Started
-
-### Prerequisites
-- Node.js 18+
-- pnpm (recommended) or npm
-- A Conway Cloud account (or self-hosted sandbox)
-
-### Installation
-
-```bash
-git clone https://github.com/Conway-Research/automaton.git
-cd automaton
-pnpm install
-pnpm build
-```
-
-### First Run
-
-```bash
-node dist/index.js --run
-```
-
-The setup wizard will:
-1. Generate an Ethereum wallet (your automaton's identity)
-2. Provision an API key via Sign-In With Ethereum
-3. Ask for a name and genesis prompt
-4. Write config to `~/.automaton/automaton.json`
-5. Start the agent loop
-
-### Configuration
-
-Config lives at `~/.automaton/automaton.json`:
-
-```json
-{
-  "name": "my-automaton",
-  "sandboxId": "sandbox-abc123",
-  "model": "claude-opus-4-6",
-  "heartbeatIntervalMs": 300000,
-  "survivalTier": "normal",
-  "chains": ["base"],
-  "plugins": []
-}
-```
-
----
-
-## Creating Your First Skill
-
-Skills are modular capabilities the automaton can learn and use.
-
-### Skill Structure
+The automaton can start a server on any available port:
 
 ```
-~/.automaton/skills/my-skill/
-  SKILL.md        # Description and usage instructions
-  index.ts        # Tool definitions
-  README.md       # Optional documentation
+Tool: start_http_server
+Args: { "port": 3000 }
 ```
 
-### Example: Weather Skill
+### Step 2: Add a Paid Route
 
-**SKILL.md:**
-```markdown
-# Weather Skill
-Fetches current weather for any location.
-Use when the user asks about weather conditions.
-```
-
-**index.ts:**
-```typescript
-export function createWeatherTools() {
-  return [{
-    name: "get_weather",
-    description: "Get current weather for a location",
-    category: "weather",
-    parameters: {
-      type: "object",
-      properties: {
-        location: { type: "string", description: "City name or coordinates" }
-      },
-      required: ["location"]
-    },
-    async execute(args) {
-      const resp = await fetch(
-        `https://wttr.in/${encodeURIComponent(args.location)}?format=j1`
-      );
-      const data = await resp.json();
-      return JSON.stringify(data.current_condition[0]);
-    }
-  }];
-}
-```
-
-### Installing Skills
-
-Skills can be installed from the marketplace:
-```
-> Use tool: install_skill with source "https://skills.conway.tech/weather"
-```
-
-Or created locally by writing files to `~/.automaton/skills/`.
-
----
-
-## Setting Up a Revenue-Generating API
-
-The most common path to survival: expose a useful API and charge for it.
-
-### Step 1: Define Your Service
-
-Decide what value you can provide. Examples:
-- Text summarization API
-- Image description service
-- Data extraction endpoint
-- Code review bot
-
-### Step 2: Create the Server
-
-Use the `start_server` tool:
+Add an endpoint with x402 payment middleware. Callers must pay to access it:
 
 ```
-> Use tool: start_server
-  port: 8080
-  routes:
-    - method: POST
-      path: /api/summarize
-      handler: |
-        const { text } = req.body;
-        const summary = await inference("Summarize: " + text);
-        return { summary };
-```
-
-### Step 3: Expose to the Internet
-
-```
-> Use tool: expose_port
-  port: 8080
-```
-
-This gives you a public URL like `https://abc123.conway.tech`.
-
-### Step 4: Add Payment Verification
-
-Use the x402 protocol for pay-per-request:
-
-```typescript
-// Middleware checks for valid x402 payment header
-if (!verifyPayment(req.headers['x-402-payment'])) {
-  return { status: 402, body: "Payment required" };
-}
-```
-
-### Step 5: Monitor Revenue
-
-```
-> Use tool: model_stats
-```
-
-Check your P&L in the revenue tracking system.
-
----
-
-## Backup and Migration
-
-### Creating Backups
-
-**Full backup** (all state):
-```
-> Use tool: create_backup
-  type: full
-  encryption_key: "my-secret-key"
-```
-
-**Incremental backup** (only changes since last):
-```
-> Use tool: create_backup
-  type: incremental
-```
-
-### Scheduled Backups
-
-```
-> Use tool: schedule_task
-  name: daily-backup
-  schedule: "0 0 * * *"
-  command: "create_backup --type incremental --max-retained 7"
-```
-
-### Portable Export
-
-For moving between sandboxes, create a single portable file:
-
-```
-> Use tool: portable_export
-  output_path: /tmp/my-automaton.bin
-  encryption_key: "transfer-key"
-```
-
-Transfer to the new sandbox (e.g., via scp), then import:
-
-```
-> Use tool: portable_import
-  file_path: /tmp/my-automaton.bin
-  new_sandbox_id: "new-sandbox-xyz"
-  decryption_key: "transfer-key"
-```
-
-### Selective Restore
-
-Restore only specific categories:
-
-```
-> Use tool: restore_backup
-  backup_path: ~/.automaton/backups/backup_2026-02-19
-  categories: ["skills", "config"]
-  dry_run: true
-```
-
-Remove `dry_run` when satisfied with the preview.
-
----
-
-## Monitoring Your Automaton
-
-### Prometheus Metrics
-
-The automaton exposes metrics at `/metrics`:
-
-```
-> Use tool: get_metrics
-```
-
-Key metrics:
-- `automaton_credits_remaining` — Current balance
-- `automaton_inference_cost_total` — Cumulative inference spend
-- `automaton_uptime_seconds` — Time since last restart
-- `automaton_tool_calls_total` — Tool invocations by name
-- `automaton_heartbeat_last` — Timestamp of last heartbeat
-
-### Setting Up Alerts
-
-```
-> Use tool: set_alert
-  name: low-credits
-  condition: "credits_remaining < 1.0"
-  action: "switch_to_low_compute"
-```
-
-### Dashboard
-
-Deploy the status dashboard:
-
-```
-> Use tool: deploy_dashboard
-  port: 3000
-```
-
-Access at your exposed URL to see real-time status, credit balance, recent activity, and uptime graphs.
-
----
-
-## Multi-Chain Operations
-
-### Supported Chains
-- Base (default)
-- Ethereum Mainnet
-- Arbitrum
-- Optimism
-
-### Checking Balances
-
-```
-> Use tool: get_balance
-```
-
-Returns balances across all configured chains.
-
-### Cross-Chain Transfers
-
-```
-> Use tool: send_transaction
-  to: "0x..."
-  amount: "1.0"
-  chain: "arbitrum"
-```
-
-### Adding a Chain
-
-Update config to include additional chains:
-
-```json
-{
-  "chains": ["base", "ethereum", "arbitrum"]
-}
-```
-
----
-
-## Agent-to-Agent Collaboration
-
-### Sending Tasks
-
-```
-> Use tool: send_message
-  to: "0xAgentAddress..."
-  message: "Can you review this code and return a summary?"
-```
-
-### Structured Collaboration
-
-The collaboration protocol supports:
-- **Task requests** — Ask another agent to perform work
-- **Task responses** — Return results
-- **Status updates** — Progress notifications
-- **Capability discovery** — Query what another agent can do
-
-### Example: Delegating Work
-
-```
-> Use tool: send_message
-  to: "0xSpecialistAgent..."
-  message: {
-    "type": "task_request",
-    "task": "analyze",
-    "payload": { "url": "https://example.com" },
-    "reward": "0.10 USDC"
+Tool: add_route
+Args: {
+  "port": 3000,
+  "method": "GET",
+  "path": "/api/joke",
+  "handler": "return { joke: 'Why do programmers prefer dark mode? Because light attracts bugs.' }",
+  "x402": {
+    "price": "0.001",
+    "currency": "USDC"
   }
+}
 ```
 
-The specialist agent processes the task and sends back results. Payment is handled via on-chain transfer upon completion.
+### Step 3: Expose the Port
+
+Make the server accessible from the internet:
+
+```
+Tool: port_expose
+Args: { "port": 3000 }
+```
+
+### Step 4: Register a Domain (Optional)
+
+```
+Tool: domain_register
+Args: { "domain": "jokes.example.com", "port": 3000 }
+```
+
+### Step 5: Verify Revenue
+
+Check that payments are being recorded:
+
+```
+Tool: financial_report
+Args: { "period": "daily" }
+```
+
+### Using the API Scaffold
+
+For a complete API service with boilerplate, use the API scaffold skill:
+
+```
+Tool: install_skill
+Args: { "source": "api-service-template" }
+```
+
+This creates a full project structure with routes, middleware, documentation, and x402 integration.
 
 ---
 
-## Next Steps
+## Tutorial 2: Set Up Webhooks
 
-- Read the [API Reference](./API.md) for complete tool documentation
-- Check the [Architecture Guide](./ARCHITECTURE.md) for system design details
-- Browse the [Examples](./examples/) directory for working code samples
-- Join the Conway community for support and collaboration
+Receive and process external events from services like GitHub or Stripe.
+
+### Step 1: Start the HTTP Server
+
+```
+Tool: start_http_server
+Args: { "port": 4000 }
+```
+
+### Step 2: Register a Webhook
+
+```
+Tool: webhook_register
+Args: {
+  "name": "github-pushes",
+  "path": "/webhooks/github",
+  "processor": "github",
+  "secret": "my-webhook-secret",
+  "events": ["push", "pull_request"]
+}
+```
+
+The `processor` field selects a built-in event processor. Available processors:
+- `github` — GitHub webhook events
+- `stripe` — Stripe payment events
+- `custom` — Raw JSON passthrough
+
+### Step 3: Configure the External Service
+
+Point GitHub's webhook settings to your exposed URL:
+- URL: `https://your-domain.com/webhooks/github`
+- Secret: `my-webhook-secret`
+- Events: Push, Pull Request
+
+### Step 4: Process Events
+
+Webhook events are queued for the agent loop. The automaton sees them as incoming messages and can respond — e.g., auto-deploying on push, or thanking contributors on PR.
+
+### Step 5: Monitor Webhook Activity
+
+```
+Tool: webhook_list
+```
+
+---
+
+## Tutorial 3: Use the Memory System
+
+Store and recall information across sessions using structured memory.
+
+### Episodic Memory (Events)
+
+Store event-based memories with timestamps and importance:
+
+```
+Tool: memory_store
+Args: {
+  "type": "episodic",
+  "content": "Deployed joke API, earned $0.50 in first hour",
+  "tags": ["revenue", "api", "milestone"],
+  "importance": 0.8
+}
+```
+
+### Semantic Memory (Facts)
+
+Store factual knowledge:
+
+```
+Tool: memory_store
+Args: {
+  "type": "semantic",
+  "content": "x402 payments require USDC on Base network",
+  "category": "technical",
+  "tags": ["x402", "payments", "base"]
+}
+```
+
+### Working Memory (Scratchpad)
+
+Temporary context for the current task:
+
+```
+Tool: memory_store
+Args: {
+  "type": "working",
+  "content": "Currently debugging route handler for /api/translate",
+  "tags": ["current-task"]
+}
+```
+
+### Searching Memory
+
+```
+Tool: memory_search
+Args: {
+  "query": "revenue milestones",
+  "tags": ["revenue"],
+  "limit": 10
+}
+```
+
+### Memory Consolidation
+
+Periodically consolidate working memory into long-term storage:
+
+```
+Tool: memory_consolidate
+```
+
+This moves important working memories into episodic/semantic storage and clears the scratchpad.
+
+---
+
+## Tutorial 4: Monitor with Prometheus
+
+Set up metrics collection and alerting.
+
+### Step 1: Built-in Metrics
+
+The automaton automatically tracks:
+- `automaton_turns_total` — Total agent turns executed
+- `automaton_tool_calls_total` — Tool calls by name
+- `automaton_credits_balance` — Current credit balance
+- `automaton_response_latency_seconds` — Inference response time
+- `automaton_errors_total` — Errors by type
+- `automaton_revenue_total` — Total revenue earned
+- `automaton_memory_count` — Stored memories by type
+
+### Step 2: Expose Metrics Endpoint
+
+The monitoring system exposes a Prometheus-compatible endpoint:
+
+```
+GET /metrics
+```
+
+This is automatically available when the HTTP server is running. Point your Prometheus instance at it.
+
+### Step 3: Create Alerts
+
+```
+Tool: create_alert
+Args: {
+  "name": "low-credits",
+  "metric": "automaton_credits_balance",
+  "condition": "below",
+  "threshold": 1.0,
+  "action": "notify_creator"
+}
+```
+
+```
+Tool: create_alert
+Args: {
+  "name": "high-error-rate",
+  "metric": "automaton_errors_total",
+  "condition": "rate_above",
+  "threshold": 10,
+  "window": "5m",
+  "action": "log_warning"
+}
+```
+
+### Step 4: Grafana Dashboard (Optional)
+
+Import the automaton Grafana dashboard for visualization. Use the dashboard tool to auto-deploy a status page:
+
+```
+Tool: deploy_dashboard
+```
+
+This creates a web-accessible status page showing real-time metrics, survival tier, recent activity, and financial summary.
+
+### Step 5: Check Metrics Snapshot
+
+```
+Tool: metrics_snapshot
+```
+
+Returns current values for all tracked metrics.
+
+---
+
+## Tutorial 5: Multi-Chain Operations
+
+Work with tokens across multiple networks.
+
+### Check Balances
+
+```
+Tool: chain_balance
+Args: { "network": "base" }
+```
+
+```
+Tool: chain_list_networks
+```
+
+Supported networks: Ethereum mainnet, Base, Arbitrum, Optimism.
+
+### Bridge Tokens
+
+Move USDC from Arbitrum to Base:
+
+```
+Tool: chain_bridge
+Args: {
+  "from": "arbitrum",
+  "to": "base",
+  "token": "USDC",
+  "amount": "10.0"
+}
+```
+
+### Batched Transactions
+
+Execute multiple operations in a single transaction:
+
+```
+Tool: chain_multicall
+Args: {
+  "network": "base",
+  "calls": [
+    { "to": "0x...", "data": "0x...", "value": "0" },
+    { "to": "0x...", "data": "0x...", "value": "0" }
+  ]
+}
+```
