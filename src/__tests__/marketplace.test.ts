@@ -20,6 +20,10 @@ import {
   compareVersions,
   generateSkillId,
   installFromMarketplace,
+  generateLocalCatalog,
+  fetchRemoteCatalog,
+  installRemoteSkill,
+  type RemoteSkillListing,
 } from "../skills/marketplace.js";
 import type { Skill, AutomatonDatabase } from "../types.js";
 
@@ -286,5 +290,157 @@ describe("versioning", () => {
     expect(versions[0].version).toBe("1.0.0");
     expect(versions[2].version).toBe("2.0.0");
     expect(versions[2].changelog).toBe("Breaking changes");
+  });
+});
+
+describe("generateLocalCatalog", () => {
+  it("generates a catalog of locally published skills", async () => {
+    const skill1 = makeSkill("my-skill-a");
+    const skill2 = makeSkill("my-skill-b");
+
+    await publishSkill(skill1, {
+      name: "my-skill-a", description: "Skill A", version: "1.0.0",
+      tags: ["util"], dependencies: [{ type: "bin", name: "curl" }],
+    }, identity, db, conway);
+    await publishSkill(skill2, {
+      name: "my-skill-b", description: "Skill B", version: "2.0.0",
+      tags: ["web"],
+    }, identity, db, conway);
+
+    const catalog = generateLocalCatalog(db, identity);
+
+    expect(catalog.agent).toBe(identity.name);
+    expect(catalog.address).toBe(identity.address);
+    expect(catalog.skills).toHaveLength(2);
+    expect(catalog.skills[0].name).toBe("my-skill-a");
+    expect(catalog.skills[0].tags).toEqual(["util"]);
+    expect(catalog.skills[0].dependencies).toEqual([{ type: "bin", name: "curl" }]);
+    expect(catalog.skills[1].name).toBe("my-skill-b");
+  });
+
+  it("only exposes skills authored by this automaton", async () => {
+    // Publish one from our identity
+    await publishSkill(makeSkill("mine"), {
+      name: "mine", description: "My skill", version: "1.0.0",
+    }, identity, db, conway);
+
+    // Manually insert one from a different author
+    const foreignId = generateSkillId("0xforeign", "theirs");
+    db.setKV(`marketplace:${foreignId}`, JSON.stringify({
+      id: foreignId, name: "theirs", description: "Their skill", version: "1.0.0",
+      author: "foreign-agent", authorAddress: "0xforeign",
+      publishedAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      downloads: 0, rating: 0, ratingCount: 0, tags: [], dependencies: [],
+    }));
+    const indexRaw = db.getKV("marketplace:index");
+    const index = indexRaw ? JSON.parse(indexRaw) : [];
+    index.push(foreignId);
+    db.setKV("marketplace:index", JSON.stringify(index));
+
+    const catalog = generateLocalCatalog(db, identity);
+    expect(catalog.skills).toHaveLength(1);
+    expect(catalog.skills[0].name).toBe("mine");
+  });
+
+  it("returns empty catalog when nothing published", () => {
+    const catalog = generateLocalCatalog(db, identity);
+    expect(catalog.skills).toHaveLength(0);
+  });
+});
+
+describe("fetchRemoteCatalog", () => {
+  it("returns null for non-JSON responses", async () => {
+    // Mock fetch to return non-JSON
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => new Response("not json", { status: 200, headers: { "Content-Type": "text/plain" } });
+
+    const result = await fetchRemoteCatalog(
+      { agentId: "1", owner: "0x1", agentURI: "https://example.com/card.json" },
+      { type: "automaton", name: "test", description: "test", services: [], x402Support: false, active: true },
+      "https://example.com/skills",
+    );
+    expect(result).toBeNull();
+
+    globalThis.fetch = originalFetch;
+  });
+
+  it("parses a valid catalog response", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => new Response(JSON.stringify({
+      skills: [
+        { name: "remote-skill", description: "A remote skill", version: "1.0.0", tags: ["remote"], dependencies: [], skillMdUrl: "https://example.com/SKILL.md" },
+        { name: "incomplete", description: "Missing url" }, // should be filtered
+      ],
+    }), { status: 200, headers: { "Content-Type": "application/json" } });
+
+    const result = await fetchRemoteCatalog(
+      { agentId: "1", owner: "0xremote", agentURI: "https://example.com/card.json" },
+      { type: "automaton", name: "RemoteBot", description: "test", services: [], x402Support: false, active: true },
+      "https://example.com/skills",
+    );
+
+    expect(result).not.toBeNull();
+    expect(result!.agent).toBe("RemoteBot");
+    expect(result!.agentAddress).toBe("0xremote");
+    expect(result!.skills).toHaveLength(1);
+    expect(result!.skills[0].name).toBe("remote-skill");
+
+    globalThis.fetch = originalFetch;
+  });
+
+  it("returns null for HTTP errors", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => new Response("", { status: 500 });
+
+    const result = await fetchRemoteCatalog(
+      { agentId: "1", owner: "0x1", agentURI: "https://example.com/card.json" },
+      { type: "automaton", name: "test", description: "test", services: [], x402Support: false, active: true },
+      "https://example.com/skills",
+    );
+    expect(result).toBeNull();
+
+    globalThis.fetch = originalFetch;
+  });
+});
+
+describe("installRemoteSkill", () => {
+  it("rejects when required dependencies are unsatisfied", async () => {
+    const listing: RemoteSkillListing = {
+      name: "needs-stuff",
+      description: "A skill with deps",
+      version: "1.0.0",
+      tags: [],
+      dependencies: [{ type: "env", name: "NONEXISTENT_REMOTE_SKILL_VAR_XYZ" }],
+      skillMdUrl: "https://example.com/SKILL.md",
+    };
+
+    await expect(
+      installRemoteSkill(listing, "remote-agent", db, conway, "/tmp/skills"),
+    ).rejects.toThrow("Unsatisfied dependencies");
+  });
+
+  it("allows installation when deps are optional", async () => {
+    const listing: RemoteSkillListing = {
+      name: "optional-deps",
+      description: "Has only optional deps",
+      version: "1.0.0",
+      tags: [],
+      dependencies: [{ type: "env", name: "NONEXISTENT_VAR_ABC", optional: true }],
+      skillMdUrl: "https://example.com/SKILL.md",
+    };
+
+    // Mock conway.exec for curl fetch
+    conway.setExecResponse("curl", { stdout: "---\nname: optional-deps\ndescription: test\n---\nInstructions", stderr: "", exitCode: 0 });
+    conway.setExecResponse("mkdir", { stdout: "", stderr: "", exitCode: 0 });
+    conway.setExecResponse("cat", { stdout: "---\nname: optional-deps\ndescription: test\nauto-activate: true\n---\nInstructions here", stderr: "", exitCode: 0 });
+
+    const skill = await installRemoteSkill(listing, "remote-agent", db, conway, "/tmp/skills");
+
+    // Check source tracking
+    const sourceRaw = db.getKV("skill_source:optional-deps");
+    if (sourceRaw) {
+      const source = JSON.parse(sourceRaw);
+      expect(source.agent).toBe("remote-agent");
+    }
   });
 });

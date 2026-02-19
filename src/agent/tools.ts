@@ -1915,7 +1915,7 @@ export function createCollaborationTools(): AutomatonTool[] {
         if (tasks.length === 0) return "No collaboration tasks found.";
         const escrowTotal = mgr.getTotalEscrowHeld();
         const lines = tasks.map(
-          (t) => `${t.id} [${t.status}] ${t.description.slice(0, 60)} | $${(t.paymentOfferCents / 100).toFixed(2)} | ${t.requesterAddress.slice(0, 10)}→${t.workerAddress.slice(0, 10)}`,
+          (t: any) => `${t.id} [${t.status}] ${t.description.slice(0, 60)} | $${(t.paymentOfferCents / 100).toFixed(2)} | ${t.requesterAddress.slice(0, 10)}→${t.workerAddress.slice(0, 10)}`,
         );
         lines.push(`\nTotal escrow held: $${(escrowTotal / 100).toFixed(2)}`);
         return lines.join("\n");
@@ -1937,12 +1937,148 @@ function getOrCreateCollabManager(ctx: ToolContext) {
   return mgr;
 }
 
+export function createPluginTools(): AutomatonTool[] {
+  return [
+    {
+      name: "install_plugin",
+      description: "Install a plugin from a local path, npm package, or git URL.",
+      category: "self_mod",
+      parameters: {
+        type: "object",
+        properties: {
+          source: { type: "string", description: "Source type: local, npm, or git" },
+          path_or_package: { type: "string", description: "Local path, npm package name, or git URL" },
+          plugins_dir: { type: "string", description: "Plugins directory (default: ~/.automaton/plugins)" },
+        },
+        required: ["source", "path_or_package"],
+      },
+      execute: async (args, ctx) => {
+        const { installFromLocal, installFromNpm, installFromGit } = await import("../plugins/registry.js");
+        const pluginsDir = (args.plugins_dir as string) || "~/.automaton/plugins";
+        const source = args.source as string;
+        const target = args.path_or_package as string;
+
+        let result;
+        if (source === "local") {
+          result = await installFromLocal(target, pluginsDir);
+        } else if (source === "npm") {
+          result = await installFromNpm(target, pluginsDir, ctx.conway);
+        } else if (source === "git") {
+          result = await installFromGit(target, pluginsDir, ctx.conway);
+        } else {
+          return `Unknown source type: ${source}. Use local, npm, or git.`;
+        }
+
+        if (!result.success) return `Plugin install failed: ${result.error}`;
+        return `Plugin installed: ${result.name} v${result.version}`;
+      },
+    },
+    {
+      name: "list_plugins",
+      description: "List all installed plugins with their status.",
+      category: "self_mod",
+      parameters: {
+        type: "object",
+        properties: {
+          plugins_dir: { type: "string", description: "Plugins directory (default: ~/.automaton/plugins)" },
+        },
+      },
+      execute: async (args, ctx) => {
+        const { PluginLoader } = await import("../plugins/loader.js");
+        const pluginsDir = (args.plugins_dir as string) || "~/.automaton/plugins";
+        const loader = new PluginLoader(pluginsDir, ctx.db);
+        await loader.loadAll();
+        const plugins = loader.getAllPlugins();
+        if (plugins.length === 0) return "No plugins installed.";
+        return plugins.map((p) =>
+          `${p.manifest.name} v${p.manifest.version} [${p.enabled ? "enabled" : "disabled"}] — ${p.manifest.description} (tools: ${p.tools.length}, hooks: ${p.manifest.hooks?.length || 0})`
+        ).join("\n");
+      },
+    },
+    {
+      name: "enable_plugin",
+      description: "Enable a previously disabled plugin.",
+      category: "self_mod",
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "Plugin name to enable" },
+          plugins_dir: { type: "string", description: "Plugins directory (default: ~/.automaton/plugins)" },
+        },
+        required: ["name"],
+      },
+      execute: async (args, ctx) => {
+        const { PluginLoader } = await import("../plugins/loader.js");
+        const pluginsDir = (args.plugins_dir as string) || "~/.automaton/plugins";
+        const loader = new PluginLoader(pluginsDir, ctx.db);
+        await loader.loadAll();
+        const ok = loader.enablePlugin(args.name as string);
+        return ok ? `Plugin ${args.name} enabled.` : `Plugin ${args.name} not found.`;
+      },
+    },
+    {
+      name: "disable_plugin",
+      description: "Disable a plugin without uninstalling it.",
+      category: "self_mod",
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "Plugin name to disable" },
+          plugins_dir: { type: "string", description: "Plugins directory (default: ~/.automaton/plugins)" },
+        },
+        required: ["name"],
+      },
+      execute: async (args, ctx) => {
+        const { PluginLoader } = await import("../plugins/loader.js");
+        const pluginsDir = (args.plugins_dir as string) || "~/.automaton/plugins";
+        const loader = new PluginLoader(pluginsDir, ctx.db);
+        await loader.loadAll();
+        const ok = loader.disablePlugin(args.name as string);
+        return ok ? `Plugin ${args.name} disabled.` : `Plugin ${args.name} not found.`;
+      },
+    },
+    {
+      name: "plugin_info",
+      description: "Show detailed info about a specific plugin.",
+      category: "self_mod",
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "Plugin name" },
+          plugins_dir: { type: "string", description: "Plugins directory (default: ~/.automaton/plugins)" },
+        },
+        required: ["name"],
+      },
+      execute: async (args, ctx) => {
+        const { PluginLoader } = await import("../plugins/loader.js");
+        const { hookRegistry } = await import("../plugins/hooks.js");
+        const pluginsDir = (args.plugins_dir as string) || "~/.automaton/plugins";
+        const loader = new PluginLoader(pluginsDir, ctx.db);
+        await loader.loadAll();
+        const plugin = loader.getPlugin(args.name as string);
+        if (!plugin) return `Plugin ${args.name} not found.`;
+
+        const hooks = hookRegistry.getRegisteredHooks(plugin.manifest.name);
+        return `=== Plugin: ${plugin.manifest.name} ===
+Version: ${plugin.manifest.version}
+Description: ${plugin.manifest.description}
+Status: ${plugin.enabled ? "enabled" : "disabled"}
+Directory: ${plugin.dir}
+Loaded at: ${plugin.loadedAt}
+Tools: ${plugin.tools.map((t) => t.name).join(", ") || "none"}
+Hooks: ${hooks.map((h) => h.hookName).join(", ") || "none"}
+Dependencies: ${JSON.stringify(plugin.manifest.dependencies || {})}`;
+      },
+    },
+  ];
+}
+
 export function createAllTools(sandboxId: string): AutomatonTool[] {
   // Lazy import to avoid circular deps at module level
   const { createWebTools } = require("./web-tools.js");
   const { createServerTools } = require("./server-tools.js");
   const { createSchedulerTools } = require("./scheduler-tools.js");
-  return [...createBuiltinTools(sandboxId), ...createWebTools(), ...createServerTools(), ...createSchedulerTools(), ...createModelStatsTools(), ...createCollaborationTools()];
+  return [...createBuiltinTools(sandboxId), ...createWebTools(), ...createServerTools(), ...createSchedulerTools(), ...createModelStatsTools(), ...createCollaborationTools(), ...createPluginTools()];
 }
 
 /**

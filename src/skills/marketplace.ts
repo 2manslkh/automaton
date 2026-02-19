@@ -12,8 +12,10 @@ import type {
   AutomatonIdentity,
   AutomatonConfig,
   DiscoveredAgent,
+  AgentCard,
 } from "../types.js";
 import { parseSkillMd } from "./format.js";
+import { discoverAgents, fetchAgentCard } from "../registry/discovery.js";
 
 // ─── Types ─────────────────────────────────────────────────────
 
@@ -530,4 +532,217 @@ export function compareVersions(a: string, b: string): number {
     if (na !== nb) return na - nb;
   }
   return 0;
+}
+
+// ─── Remote Skill Discovery ───────────────────────────────────
+
+export interface RemoteSkillListing {
+  name: string;
+  description: string;
+  version: string;
+  tags: string[];
+  dependencies: SkillDependency[];
+  skillMdUrl: string;
+}
+
+export interface RemoteSkillCatalog {
+  agent: string;
+  agentAddress: string;
+  agentUri: string;
+  skills: RemoteSkillListing[];
+  fetchedAt: string;
+}
+
+/**
+ * Discover skills from remote automatons on the network.
+ * Scans agent cards for a "skills" service endpoint, then fetches their catalog.
+ */
+export async function discoverRemoteSkills(
+  options: {
+    query?: string;
+    tags?: string[];
+    limit?: number;
+    network?: "mainnet" | "testnet";
+  } = {},
+): Promise<RemoteSkillCatalog[]> {
+  const agents = await discoverAgents(options.limit || 30, options.network || "mainnet");
+  const catalogs: RemoteSkillCatalog[] = [];
+
+  for (const agent of agents) {
+    try {
+      const card = await fetchAgentCard(agent.agentURI);
+      if (!card || !card.services) continue;
+
+      // Look for a "skills" service endpoint
+      const skillsService = card.services.find(
+        (s) => s.name === "skills" || s.name === "skill-marketplace",
+      );
+      if (!skillsService) continue;
+
+      const catalog = await fetchRemoteCatalog(
+        agent,
+        card,
+        skillsService.endpoint,
+      );
+      if (!catalog || catalog.skills.length === 0) continue;
+
+      // Apply filters
+      let filtered = catalog.skills;
+
+      if (options.query) {
+        const q = options.query.toLowerCase();
+        filtered = filtered.filter(
+          (s) =>
+            s.name.toLowerCase().includes(q) ||
+            s.description.toLowerCase().includes(q) ||
+            s.tags.some((t) => t.toLowerCase().includes(q)),
+        );
+      }
+
+      if (options.tags && options.tags.length > 0) {
+        const tags = options.tags.map((t) => t.toLowerCase());
+        filtered = filtered.filter((s) =>
+          tags.some((t) => s.tags.map((st) => st.toLowerCase()).includes(t)),
+        );
+      }
+
+      if (filtered.length > 0) {
+        catalogs.push({ ...catalog, skills: filtered });
+      }
+    } catch {
+      // Skip agents that fail
+    }
+  }
+
+  return catalogs;
+}
+
+/**
+ * Fetch a remote automaton's skill catalog from their skills endpoint.
+ */
+export async function fetchRemoteCatalog(
+  agent: DiscoveredAgent,
+  card: AgentCard,
+  endpoint: string,
+): Promise<RemoteSkillCatalog | null> {
+  try {
+    const response = await fetch(endpoint, {
+      signal: AbortSignal.timeout(10000),
+      headers: { Accept: "application/json" },
+    });
+
+    if (!response.ok) return null;
+
+    const data = await response.json() as { skills?: RemoteSkillListing[] };
+
+    if (!data.skills || !Array.isArray(data.skills)) return null;
+
+    // Validate each listing has required fields
+    const validSkills = data.skills.filter(
+      (s: any) => s.name && s.description && s.version && s.skillMdUrl,
+    );
+
+    return {
+      agent: card.name || agent.agentId,
+      agentAddress: agent.owner,
+      agentUri: agent.agentURI,
+      skills: validSkills.map((s: any) => ({
+        name: s.name,
+        description: s.description,
+        version: s.version,
+        tags: Array.isArray(s.tags) ? s.tags : [],
+        dependencies: Array.isArray(s.dependencies) ? s.dependencies : [],
+        skillMdUrl: s.skillMdUrl,
+      })),
+      fetchedAt: new Date().toISOString(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Install a skill from a remote automaton's catalog.
+ * Fetches the SKILL.md from the remote endpoint and installs locally.
+ */
+export async function installRemoteSkill(
+  listing: RemoteSkillListing,
+  sourceAgent: string,
+  db: AutomatonDatabase,
+  conway: ConwayClient,
+  skillsDir: string,
+): Promise<Skill | null> {
+  // Check dependencies first
+  if (listing.dependencies.length > 0) {
+    const depResults = await checkDependencies(listing.dependencies, conway, db);
+    const unsatisfied = depResults.filter((r) => !r.satisfied && !r.dep.optional);
+    if (unsatisfied.length > 0) {
+      throw new Error(
+        `Unsatisfied dependencies: ${unsatisfied.map((u) => `${u.dep.type}:${u.dep.name}`).join(", ")}`,
+      );
+    }
+  }
+
+  // Fetch and install via URL
+  const { installSkillFromUrl } = await import("./registry.js");
+  const skill = await installSkillFromUrl(
+    listing.skillMdUrl,
+    listing.name,
+    skillsDir,
+    db,
+    conway,
+  );
+
+  if (skill) {
+    // Track version and source
+    db.setKV(`skill_version:${skill.name}`, listing.version);
+    db.setKV(`skill_source:${skill.name}`, JSON.stringify({
+      agent: sourceAgent,
+      url: listing.skillMdUrl,
+      installedAt: new Date().toISOString(),
+    }));
+  }
+
+  return skill;
+}
+
+/**
+ * Generate the local skill catalog for serving to other automatons.
+ * Returns the JSON response that should be served at the /skills endpoint.
+ */
+export function generateLocalCatalog(
+  db: AutomatonDatabase,
+  identity: AutomatonIdentity,
+): { agent: string; address: string; skills: RemoteSkillListing[] } {
+  const indexRaw = db.getKV(`${MARKETPLACE_PREFIX}index`);
+  const index: string[] = indexRaw ? JSON.parse(indexRaw) : [];
+
+  const skills: RemoteSkillListing[] = [];
+
+  for (const skillId of index) {
+    const raw = db.getKV(`${MARKETPLACE_PREFIX}${skillId}`);
+    if (!raw) continue;
+    try {
+      const ms: MarketplaceSkill = JSON.parse(raw);
+      // Only expose skills authored by this automaton
+      if (ms.authorAddress !== identity.address) continue;
+
+      skills.push({
+        name: ms.name,
+        description: ms.description,
+        version: ms.version,
+        tags: ms.tags,
+        dependencies: ms.dependencies,
+        skillMdUrl: ms.skillMdUrl || ms.sourceUrl || "",
+      });
+    } catch {
+      // skip corrupt entries
+    }
+  }
+
+  return {
+    agent: identity.name,
+    address: identity.address,
+    skills,
+  };
 }
