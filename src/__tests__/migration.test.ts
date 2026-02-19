@@ -11,7 +11,7 @@ import {
   pruneBackups,
 } from "../migration/backup.js";
 import { restoreBackup } from "../migration/restore.js";
-import { exportForMigration, importMigration, verifyMigration } from "../migration/migrate.js";
+import { exportForMigration, importMigration, verifyMigration, exportPortable, importPortable } from "../migration/migrate.js";
 
 // Use a temp dir as ~/.automaton for tests
 let tmpHome: string;
@@ -182,5 +182,44 @@ describe("migration", () => {
     const verification = verifyMigration(exported.backup.path);
     expect(verification.complete).toBe(true);
     expect(verification.missingFiles).toHaveLength(0);
+  });
+});
+
+describe("portable export/import", () => {
+  it("exports and imports via single file", () => {
+    const outputPath = path.join(tmpHome, "export.bin");
+    const exported = exportPortable("sandbox-1", outputPath);
+    expect(exported.fileCount).toBeGreaterThanOrEqual(5);
+    expect(exported.sizeBytes).toBeGreaterThan(0);
+    expect(fs.existsSync(outputPath)).toBe(true);
+
+    // Modify config to confirm import overwrites it
+    const autoDir = path.join(tmpHome, ".automaton");
+    const config = JSON.parse(fs.readFileSync(path.join(autoDir, "automaton.json"), "utf-8"));
+    config.name = "modified";
+    fs.writeFileSync(path.join(autoDir, "automaton.json"), JSON.stringify(config));
+
+    const result = importPortable(outputPath, "sandbox-new");
+    expect(result.success).toBe(true);
+    expect(result.targetSandboxId).toBe("sandbox-new");
+    expect(result.filesRestored).toBeGreaterThanOrEqual(5);
+
+    // Verify sandbox ID was updated
+    const restoredConfig = JSON.parse(fs.readFileSync(path.join(autoDir, "automaton.json"), "utf-8"));
+    expect(restoredConfig.sandboxId).toBe("sandbox-new");
+  });
+
+  it("handles encrypted portable export/import", () => {
+    const outputPath = path.join(tmpHome, "export-enc.bin");
+    const exported = exportPortable("sandbox-1", outputPath, "secretkey");
+    expect(exported.fileCount).toBeGreaterThanOrEqual(5);
+
+    const result = importPortable(outputPath, "sandbox-enc", "secretkey");
+    expect(result.success).toBe(true);
+
+    // Verify wallet was decrypted correctly
+    const autoDir = path.join(tmpHome, ".automaton");
+    const wallet = JSON.parse(fs.readFileSync(path.join(autoDir, "wallet.json"), "utf-8"));
+    expect(wallet.privateKey).toBe("0xdeadbeef");
   });
 });

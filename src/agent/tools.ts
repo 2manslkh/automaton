@@ -2095,7 +2095,8 @@ export function createAllTools(sandboxId: string): AutomatonTool[] {
   const { createWebTools } = require("./web-tools.js");
   const { createServerTools } = require("./server-tools.js");
   const { createSchedulerTools } = require("./scheduler-tools.js");
-  return [...createBuiltinTools(sandboxId), ...createWebTools(), ...createServerTools(), ...createSchedulerTools(), ...createModelStatsTools(), ...createCollaborationTools(), ...createPluginTools(), ...createQuotaTools()];
+  const { createMigrationTools } = require("../migration/tools.js");
+  return [...createBuiltinTools(sandboxId), ...createWebTools(), ...createServerTools(), ...createSchedulerTools(), ...createModelStatsTools(), ...createCollaborationTools(), ...createPluginTools(), ...createQuotaTools(), ...createMigrationTools()];
 }
 
 /**

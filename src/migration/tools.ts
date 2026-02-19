@@ -7,7 +7,7 @@
 import type { AutomatonTool } from "../types.js";
 import { createBackup, listBackups } from "./backup.js";
 import { restoreBackup, type RestoreCategory } from "./restore.js";
-import { exportForMigration, importMigration, verifyMigration } from "./migrate.js";
+import { exportForMigration, importMigration, verifyMigration, exportPortable, importPortable } from "./migrate.js";
 
 export function createMigrationTools(): AutomatonTool[] {
   return [
@@ -112,6 +112,49 @@ export function createMigrationTools(): AutomatonTool[] {
           return JSON.stringify(result, null, 2);
         }
         return `Unknown action: ${action}`;
+      },
+    },
+    {
+      name: "portable_export",
+      description: "Export automaton state as a single portable file for easy transfer between sandboxes (scp, upload, etc).",
+      category: "migration",
+      parameters: {
+        type: "object",
+        properties: {
+          output_path: { type: "string", description: "Output file path (default: ~/automaton-export.bin)" },
+          encryption_key: { type: "string", description: "Optional key to encrypt sensitive files" },
+        },
+      },
+      async execute(args, context) {
+        const outputPath = (args.output_path as string) || `${process.env.HOME}/automaton-export.bin`;
+        const result = exportPortable(
+          context.config.sandboxId,
+          outputPath,
+          args.encryption_key as string | undefined,
+        );
+        return JSON.stringify(result, null, 2);
+      },
+    },
+    {
+      name: "portable_import",
+      description: "Import automaton state from a portable export file into this sandbox.",
+      category: "migration",
+      parameters: {
+        type: "object",
+        properties: {
+          file_path: { type: "string", description: "Path to the portable export file" },
+          new_sandbox_id: { type: "string", description: "New sandbox ID for this instance" },
+          decryption_key: { type: "string", description: "Key to decrypt sensitive files" },
+        },
+        required: ["file_path", "new_sandbox_id"],
+      },
+      async execute(args, _context) {
+        const result = importPortable(
+          args.file_path as string,
+          args.new_sandbox_id as string,
+          args.decryption_key as string | undefined,
+        );
+        return JSON.stringify(result, null, 2);
       },
     },
   ];
