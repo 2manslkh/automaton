@@ -2073,12 +2073,29 @@ Dependencies: ${JSON.stringify(plugin.manifest.dependencies || {})}`;
   ];
 }
 
+export function createQuotaTools(): AutomatonTool[] {
+  return [
+    {
+      name: "quota_status",
+      description:
+        "Show current quota usage, limits, and reset times for all tracked quotas (inference calls, tool calls, API requests, x402 spend).",
+      category: "survival" as ToolCategory,
+      parameters: { type: "object", properties: {} },
+      execute: async (_args, _ctx) => {
+        const { getQuotaManager } = await import("../utils/quota-manager.js");
+        const qm = getQuotaManager();
+        return qm.formatStatus();
+      },
+    },
+  ];
+}
+
 export function createAllTools(sandboxId: string): AutomatonTool[] {
   // Lazy import to avoid circular deps at module level
   const { createWebTools } = require("./web-tools.js");
   const { createServerTools } = require("./server-tools.js");
   const { createSchedulerTools } = require("./scheduler-tools.js");
-  return [...createBuiltinTools(sandboxId), ...createWebTools(), ...createServerTools(), ...createSchedulerTools(), ...createModelStatsTools(), ...createCollaborationTools(), ...createPluginTools()];
+  return [...createBuiltinTools(sandboxId), ...createWebTools(), ...createServerTools(), ...createSchedulerTools(), ...createModelStatsTools(), ...createCollaborationTools(), ...createPluginTools(), ...createQuotaTools()];
 }
 
 /**

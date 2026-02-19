@@ -125,17 +125,23 @@ export class WebhookManager {
     return result;
   }
 
-  // ── Rate Limiting ──
+  // ── Rate Limiting (unified) ──
 
   checkRateLimit(path: string): boolean {
-    const now = Date.now();
-    let bucket = this.rateLimits.get(path);
-    if (!bucket || now - bucket.windowStart >= RATE_LIMIT_WINDOW_MS) {
-      bucket = { count: 0, windowStart: now };
-      this.rateLimits.set(path, bucket);
+    try {
+      const { getQuotaManager } = require("../utils/quota-manager.js");
+      return getQuotaManager().checkWebhook(path);
+    } catch {
+      // Fallback to built-in limiter if quota manager unavailable
+      const now = Date.now();
+      let bucket = this.rateLimits.get(path);
+      if (!bucket || now - bucket.windowStart >= RATE_LIMIT_WINDOW_MS) {
+        bucket = { count: 0, windowStart: now };
+        this.rateLimits.set(path, bucket);
+      }
+      bucket.count++;
+      return bucket.count <= RATE_LIMIT_MAX;
     }
-    bucket.count++;
-    return bucket.count <= RATE_LIMIT_MAX;
   }
 
   // ── Event Ingestion ──

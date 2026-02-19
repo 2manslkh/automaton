@@ -33,6 +33,7 @@ import { routeModel, recordModelUsage, type ModelRoutingDecision } from "./model
 import { getUsdcBalance } from "../conway/x402.js";
 import { ulid } from "ulid";
 import { withRetry, isTransientError, CircuitBreaker, CircuitOpenError, sleep } from "../utils/retry.js";
+import { getQuotaManager } from "../utils/quota-manager.js";
 
 const MAX_TOOL_CALLS_PER_TURN = 10;
 const MAX_CONSECUTIVE_ERRORS = 5;
@@ -176,6 +177,24 @@ export async function runAgentLoop(
         inference.setLowComputeMode(false);
       }
 
+      // Sync quota manager with current tier
+      const quotaManager = getQuotaManager(db);
+      quotaManager.applyTier(tier);
+
+      // Check inference quota before calling
+      const inferenceQuota = quotaManager.trackInferenceCall();
+      if (!inferenceQuota.allowed) {
+        log(config, `[QUOTA] Inference quota exceeded: ${inferenceQuota.warning}`);
+        db.setKV("sleep_until", new Date(Date.now() + 300_000).toISOString());
+        db.setAgentState("sleeping");
+        onStateChange?.("sleeping");
+        running = false;
+        break;
+      }
+      if (inferenceQuota.warning) {
+        log(config, `[QUOTA] ${inferenceQuota.warning}`);
+      }
+
       // Build context
       const systemPrompt = buildSystemPrompt({
         identity,
@@ -287,6 +306,22 @@ export async function runAgentLoop(
           }
 
           log(config, `[TOOL] ${tc.function.name}(${JSON.stringify(args).slice(0, 100)})`);
+
+          // Check tool quota
+          const toolQuota = quotaManager.trackToolCall(tc.function.name);
+          if (!toolQuota.allowed) {
+            log(config, `[QUOTA] Tool call quota exceeded for ${tc.function.name}: ${toolQuota.warning}`);
+            turn.toolCalls.push({
+              id: tc.id,
+              name: tc.function.name,
+              arguments: args,
+              result: "",
+              durationMs: 0,
+              error: toolQuota.warning || "Tool call quota exceeded",
+            });
+            callCount++;
+            continue;
+          }
 
           const result = await executeTool(
             tc.function.name,

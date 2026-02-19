@@ -5,29 +5,22 @@
  */
 
 import type { AutomatonTool } from "../types.js";
+import { getQuotaManager } from "../utils/quota-manager.js";
 
-// ─── Rate Limiter ──────────────────────────────────────────────
-
-const fetchTimestamps: number[] = [];
-const RATE_LIMIT = 10;
-const RATE_WINDOW_MS = 60_000;
+// ─── Rate Limiter (unified) ───────────────────────────────────
 
 export function checkRateLimit(): string | null {
-  const now = Date.now();
-  // Purge old entries
-  while (fetchTimestamps.length > 0 && fetchTimestamps[0]! < now - RATE_WINDOW_MS) {
-    fetchTimestamps.shift();
-  }
-  if (fetchTimestamps.length >= RATE_LIMIT) {
-    return `Rate limited: ${RATE_LIMIT} fetches per minute exceeded. Try again in ${Math.ceil((fetchTimestamps[0]! + RATE_WINDOW_MS - now) / 1000)}s.`;
-  }
-  fetchTimestamps.push(now);
-  return null;
+  return getQuotaManager().checkWebFetch();
+}
+
+export function checkSearchRateLimit(): string | null {
+  return getQuotaManager().checkWebSearch();
 }
 
 /** Reset rate limiter (for testing) */
 export function resetRateLimit(): void {
-  fetchTimestamps.length = 0;
+  const { resetQuotaManager } = require("../utils/quota-manager.js");
+  resetQuotaManager();
 }
 
 // ─── Content Sanitization / Injection Defense ──────────────────
@@ -204,7 +197,7 @@ export function createWebTools(): AutomatonTool[] {
         const maxResults = Math.min((args.max_results as number) || 5, 10);
 
         // Rate limit check
-        const rateLimitError = checkRateLimit();
+        const rateLimitError = checkSearchRateLimit();
         if (rateLimitError) return rateLimitError;
 
         try {
