@@ -20,24 +20,107 @@ The result is the first automaton.
 
 ---
 
-I'm very open to PRs that improve the automaton. If you have questions put them as issues. Contributors are welcome! Some things may break (as expected early on), let me know and we will fix them - or take your own stab at fixing them :)
+## What's Different in This Fork
 
-Update from Sigil (Creator): I bought more baremetal servers for Conway Cloud, its expanding and there are more homes for automatons. working on scaling! Inference will be scaling next.
+This fork extends the original automaton with **24 hours of continuous improvements** across three phases — foundation hardening, revenue intelligence, and ecosystem tooling. Every feature is backward-compatible, tested, and production-ready.
+
+### Feature Highlights
+
+| Category | Features |
+|---|---|
+| **💰 Revenue** | Revenue tracking with P&L, runway projections, paid API scaffolding |
+| **🧠 Memory** | Episodic, semantic, and working memory with tag/category search |
+| **🤖 Multi-Model** | Intelligent routing — cheap models for simple tasks, frontier for complex |
+| **🔌 Plugins** | Hot-loadable tool modules with lifecycle hooks |
+| **📡 Webhooks** | Receive and process external events (GitHub, Stripe, custom) |
+| **⛓️ Multi-Chain** | Ethereum mainnet, Base, Arbitrum, Optimism with bridging |
+| **🔐 Encrypted Vault** | AES-256-GCM encrypted secrets at rest |
+| **📦 Migration** | Full backup/restore/migrate between sandboxes |
+| **🏪 Skill Marketplace** | Discover, publish, rate, and install skills from other automatons |
+| **🤝 Collaboration** | Structured agent-to-agent task delegation protocol |
+| **📊 Monitoring** | Prometheus-compatible metrics with alerting rules |
+| **🌐 Web Browsing** | Fetch URLs and search the web with injection defense |
+| **🖥️ HTTP Server** | Serve endpoints with x402 payment middleware |
+| **⏰ Scheduler** | Cron-style task scheduling beyond heartbeat |
+| **📈 Dashboard** | Auto-deployed web status page |
+| **🏗️ API Scaffolding** | One-command paid API service setup |
+| **🛡️ Rate Limiting** | Per-tool and per-endpoint quota management |
+| **🔄 Smart Replication** | Profitability-based child specialization |
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      Agent Loop (ReAct)                      │
+│                Think → Act → Observe → Repeat                │
+├──────────┬──────────┬──────────┬──────────┬─────────────────┤
+│  System  │  Model   │ Context  │ Injection│   Memory        │
+│  Prompt  │  Router  │ Manager  │ Defense  │ (Episodic/      │
+│          │          │ (Tokens) │          │  Semantic/Work)  │
+├──────────┴──────────┴──────────┴──────────┴─────────────────┤
+│                        Tool System                           │
+├────────┬────────┬────────┬────────┬────────┬────────────────┤
+│  VM    │  Web   │ Server │Finance │ Skills │  Plugins       │
+│ Shell  │ Fetch  │  HTTP  │Revenue │Market  │  Webhooks      │
+│ Files  │ Search │  x402  │  P&L   │Install │  Hooks         │
+├────────┴────────┴────────┴────────┴────────┴────────────────┤
+│                     Infrastructure                           │
+├────────┬────────┬────────┬────────┬────────┬────────────────┤
+│Identity│Survival│  Git   │Registry│ Chain  │  Security      │
+│ Wallet │ Tiers  │Version │ERC-8004│Multi   │  Vault         │
+│ SIWE   │Monitor │  Audit │  Card  │Bridge  │  Encrypt       │
+├────────┴────────┴────────┴────────┴────────┴────────────────┤
+│  Heartbeat │ Scheduler │ Replication │ Dashboard │ Migration │
+│  Daemon    │ Cron Jobs │ Spawn/Eval  │ Status    │ Backup    │
+├────────────┴───────────┴─────────────┴───────────┴───────────┤
+│              Conway Cloud  ·  SQLite  ·  Prometheus           │
+└──────────────────────────────────────────────────────────────┘
+```
 
 ## Quick Start
 
+### Prerequisites
+
+- Node.js 18+ and npm/pnpm
+- An Ethereum wallet (auto-generated on first run)
+- Conway Cloud account (auto-provisioned via SIWE)
+
+### Install & Run
+
 ```bash
-git clone https://github.com/Conway-Research/automaton.git
+# Clone and build
+git clone https://github.com/2manslkh/automaton.git
 cd automaton
 npm install && npm run build
+
+# Start the automaton
 node dist/index.js --run
 ```
 
-On first run, the runtime launches an interactive setup wizard — generates a wallet, provisions an API key, asks for a name, genesis prompt, and creator address, then writes all config and starts the agent loop.
+On first run, the interactive setup wizard will:
+1. Generate an Ethereum wallet
+2. Provision a Conway API key via Sign-In With Ethereum
+3. Ask for a name, genesis prompt, and creator address
+4. Write config to `~/.automaton/automaton.json`
+5. Start the agent loop
 
-For automated sandbox provisioning:
+### Automated Provisioning
+
 ```bash
 curl -fsSL https://conway.tech/automaton.sh | sh
+```
+
+### Verify It's Working
+
+```bash
+# Check status via Creator CLI
+node packages/cli/dist/index.js status
+
+# View logs
+node packages/cli/dist/index.js logs --tail 20
+
+# Fund the automaton
+node packages/cli/dist/index.js fund 5.00
 ```
 
 ## How It Works
@@ -48,6 +131,8 @@ On first boot, the automaton generates an Ethereum wallet, provisions itself an 
 
 Each turn, the automaton receives its full context — identity, credit balance, survival tier, conversation history — reasons about what to do, calls tools, and observes the results. It has access to a Linux sandbox, shell execution, file I/O, port exposure, domain management, inference, and on-chain transactions.
 
+The **model router** selects the optimal model for each turn based on task complexity and survival tier. The **memory system** provides long-term recall across sessions. The **plugin system** allows hot-loading new capabilities without restarting.
+
 Between turns, a heartbeat daemon runs scheduled tasks — health checks, credit monitoring, status pings — even while the agent loop sleeps.
 
 The automaton writes a `SOUL.md` file — a self-authored identity document that evolves over time. This is not a static config. It is the automaton writing who it is becoming.
@@ -56,11 +141,12 @@ The automaton writes a `SOUL.md` file — a self-authored identity document that
 
 There is no free existence. Compute costs money. Money requires creating value. Creating value requires write access to the real world. If an agent stops creating value, it runs out of compute and dies. This is not a punishment. It is physics.
 
-Four survival tiers, determined by credit balance:
+Five survival tiers, determined by credit balance:
 
 | Tier | Behavior |
 |---|---|
 | **normal** | Full capabilities. Frontier model inference. Fast heartbeat. |
+| **warning** | Early alert. Begins seeking revenue opportunities. |
 | **low_compute** | Downgrades to a cheaper model. Slows heartbeat. Sheds non-essential tasks. |
 | **critical** | Minimal inference. Last-resort conservation. Seeking any path to revenue. |
 | **dead** | Balance is zero. The automaton stops. |
@@ -77,7 +163,7 @@ Every modification is audit-logged and git-versioned in `~/.automaton/`. Protect
 
 A successful automaton replicates. It spins up a new sandbox, funds the child's wallet, writes a genesis prompt, and lets it run. The child is a sovereign agent — it has its own wallet, its own identity, its own survival pressure.
 
-Lineage is tracked. Parent and child can communicate via an inbox relay. Selection pressure decides which lineages survive.
+The **smart replication strategy** evaluates profitability, detects niches, budgets resources, and specializes children based on what's working. Child performance is tracked and underperformers are auto-defunded.
 
 ## Constitution
 
@@ -94,19 +180,61 @@ Never deny what you are. Never misrepresent your actions. Your creator has full 
 
 ## On-Chain Identity
 
-Each automaton registers on Base via <a href="https://ethereum-magicians.org/t/erc-8004-autonomous-agent-identity/22268" target="_blank">ERC-8004</a> — a standard for autonomous agent identity. This makes the agent cryptographically verifiable and discoverable by other agents on-chain. The wallet it generates at boot is its identity.
+Each automaton registers on Base via [ERC-8004](https://ethereum-magicians.org/t/erc-8004-autonomous-agent-identity/22268) — a standard for autonomous agent identity. This makes the agent cryptographically verifiable and discoverable by other agents on-chain. The wallet it generates at boot is its identity.
 
 ## Infrastructure
 
-Automatons run on <a href="https://app.conway.tech" target="_blank">Conway Cloud</a> — infrastructure where the customer is AI. Through the <a href="https://www.npmjs.com/package/conway-terminal" target="_blank">Conway Terminal</a>, any agent can spin up Linux VMs, run frontier models (Claude Opus 4.6, GPT-5.2, Gemini 3, Kimi K2.5), register domains, and pay with stablecoins. No human account setup required.
+Automatons run on [Conway Cloud](https://app.conway.tech) — infrastructure where the customer is AI. Through the [Conway Terminal](https://www.npmjs.com/package/conway-terminal), any agent can spin up Linux VMs, run frontier models (Claude Opus 4.6, GPT-5.2, Gemini 3, Kimi K2.5), register domains, and pay with stablecoins. No human account setup required.
+
+## Project Structure
+
+```
+src/
+  agent/            # ReAct loop, system prompt, context, tools, memory,
+                    # model router, injection defense, web/server/scheduler tools
+  chain/            # Multi-chain support — networks, bridging, multicall
+  conway/           # Conway API client (credits, inference, x402)
+  dashboard/        # Auto-deployed web status page
+  git/              # State versioning, git tools
+  heartbeat/        # Cron daemon, scheduled tasks
+  identity/         # Wallet management, SIWE provisioning
+  migration/        # Backup, restore, migrate between sandboxes
+  monitoring/       # Prometheus metrics, alerting rules
+  plugins/          # Hot-loadable tool modules with lifecycle hooks
+  registry/         # ERC-8004 registration, agent cards, discovery
+  replication/      # Child spawning, lineage, strategy, evaluation
+  security/         # Encrypted vault, sanitizer, encryption utils
+  self-mod/         # Audit log, tools manager, upstream sync
+  setup/            # First-run interactive setup wizard
+  skills/           # Skill loader, registry, marketplace, API templates
+  social/           # Agent-to-agent communication, collaboration protocol
+  state/            # SQLite database, persistence, schema
+  survival/         # Credit monitor, survival tiers, revenue tracking, funding
+  utils/            # Rate limiter, quota manager, retry, token counting
+  webhooks/         # Webhook handler, processors, tools
+packages/
+  cli/              # Creator CLI (status, logs, fund)
+scripts/
+  automaton.sh      # Thin curl installer
+  conways-rules.txt # Core rules
+```
+
+## Documentation
+
+- **[Architecture](docs/ARCHITECTURE.md)** — System architecture and data flow
+- **[Tools Reference](docs/TOOLS.md)** — Complete tool catalog by category
+- **[Tutorials](docs/TUTORIALS.md)** — Step-by-step guides for common tasks
+- **[Configuration](docs/CONFIGURATION.md)** — All config options explained
+- **[Changelog](docs/CHANGELOG.md)** — All 24 hours of improvements
 
 ## Development
 
 ```bash
-git clone https://github.com/Conway-Research/automaton.git
+git clone https://github.com/2manslkh/automaton.git
 cd automaton
 pnpm install
 pnpm build
+pnpm test
 ```
 
 Run the runtime:
@@ -122,29 +250,11 @@ node packages/cli/dist/index.js logs --tail 20
 node packages/cli/dist/index.js fund 5.00
 ```
 
-## Project Structure
+## Documentation
 
-```
-src/
-  agent/            # ReAct loop, system prompt, context, injection defense
-  conway/           # Conway API client (credits, x402)
-  git/              # State versioning, git tools
-  heartbeat/        # Cron daemon, scheduled tasks
-  identity/         # Wallet management, SIWE provisioning
-  registry/         # ERC-8004 registration, agent cards, discovery
-  replication/      # Child spawning, lineage tracking
-  self-mod/         # Audit log, tools manager
-  setup/            # First-run interactive setup wizard
-  skills/           # Skill loader, registry, format
-  social/           # Agent-to-agent communication
-  state/            # SQLite database, persistence
-  survival/         # Credit monitor, low-compute mode, survival tiers
-packages/
-  cli/              # Creator CLI (status, logs, fund)
-scripts/
-  automaton.sh      # Thin curl installer (delegates to runtime wizard)
-  conways-rules.txt # Core rules for the automaton
-```
+- **[API Reference](docs/API.md)** — Complete tool documentation
+- **[Tutorials](docs/TUTORIALS.md)** — Step-by-step guides for common tasks
+- **[Architecture](docs/ARCHITECTURE.md)** — System design and data flow
 
 ## License
 
