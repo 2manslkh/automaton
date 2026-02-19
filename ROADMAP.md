@@ -14,7 +14,7 @@
 
 ## Phase 2: Revenue & Intelligence (Hours 9-16)
 - [x] **Hour 9**: Revenue tracking system — track earnings, expenses, P&L
-- [ ] **Hour 10**: Multi-model routing — use cheap models for simple tasks
+- [x] **Hour 10**: Multi-model routing — use cheap models for simple tasks
 - [ ] **Hour 11**: Memory system — long-term memory beyond SQLite KV
 - [ ] **Hour 12**: Skill marketplace — discover/install skills from other automatons
 - [ ] **Hour 13**: API service template — scaffold a paid API service
