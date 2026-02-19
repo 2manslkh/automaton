@@ -13,7 +13,7 @@
 - [x] **Hour 8**: Add cron/scheduler tool (beyond heartbeat)
 
 ## Phase 2: Revenue & Intelligence (Hours 9-16)
-- [ ] **Hour 9**: Revenue tracking system — track earnings, expenses, P&L
+- [x] **Hour 9**: Revenue tracking system — track earnings, expenses, P&L
 - [ ] **Hour 10**: Multi-model routing — use cheap models for simple tasks
 - [ ] **Hour 11**: Memory system — long-term memory beyond SQLite KV
 - [ ] **Hour 12**: Skill marketplace — discover/install skills from other automatons

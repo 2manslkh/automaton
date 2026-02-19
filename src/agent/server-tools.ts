@@ -107,6 +107,19 @@ function createRequestHandler(managed: ManagedServer) {
         res.end(JSON.stringify({ error: payment.error }));
         return;
       }
+
+      // Log x402 payment as revenue if amount is known
+      if (route.paymentAmount && route.paymentAmount > 0) {
+        try {
+          const { logX402Payment } = require("../survival/revenue.js");
+          const db = (managed as any)._revenueDb;
+          if (db) {
+            logX402Payment(db, route.paymentAmount, route.path);
+          }
+        } catch {
+          // Revenue tracking is best-effort; don't break request handling
+        }
+      }
     }
 
     // Serve file if filePath specified
@@ -164,7 +177,7 @@ export function createServerTools(): AutomatonTool[] {
         },
         required: ["port"],
       },
-      execute: async (args, _ctx) => {
+      execute: async (args, ctx) => {
         const port = args.port as number;
 
         if (servers.has(port)) {
@@ -201,6 +214,9 @@ export function createServerTools(): AutomatonTool[] {
           managed.routes.set(key, def);
           managed.stats.set(key, { requestCount: 0, lastRequestAt: null });
         }
+
+        // Attach db for revenue tracking (best-effort)
+        (managed as any)._revenueDb = ctx?.db || null;
 
         return new Promise<string>((resolve) => {
           const server = http.createServer(createRequestHandler(managed));

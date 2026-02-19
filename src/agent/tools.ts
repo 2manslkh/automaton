@@ -1489,6 +1489,21 @@ Est. Days Remaining: ${runwayDays}
       },
     },
 
+    // ── Revenue Dashboard Tool ──
+    {
+      name: "revenue_dashboard",
+      description:
+        "Show a formatted revenue dashboard with P&L (daily, weekly, all-time), top revenue sources, cost breakdown, trend analysis, and runway projection.",
+      category: "financial",
+      parameters: { type: "object", properties: {} },
+      execute: async (_args, ctx) => {
+        const { buildRevenueDashboard, formatDashboard } = await import("../survival/revenue.js");
+        const credits = await ctx.conway.getCreditsBalance();
+        const dashboard = buildRevenueDashboard(ctx.db, credits);
+        return formatDashboard(dashboard);
+      },
+    },
+
     // ── x402 Payment Tool ──
     {
       name: "x402_fetch",

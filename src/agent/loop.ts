@@ -299,6 +299,15 @@ export async function runAgentLoop(
         db.insertToolCall(turn.id, tc);
       }
       recordTurnCost(db, turn.costCents);
+
+      // Log inference cost as a revenue expense event
+      try {
+        const { logInferenceCost } = await import("../survival/revenue.js");
+        logInferenceCost(db, turn.costCents, inference.getDefaultModel(), turn.id);
+      } catch {
+        // Revenue tracking is best-effort
+      }
+
       onTurnComplete?.(turn);
 
       // Log the turn
