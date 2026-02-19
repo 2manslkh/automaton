@@ -1560,7 +1560,8 @@ export function createAllTools(sandboxId: string): AutomatonTool[] {
   // Lazy import to avoid circular deps at module level
   const { createWebTools } = require("./web-tools.js");
   const { createServerTools } = require("./server-tools.js");
-  return [...createBuiltinTools(sandboxId), ...createWebTools(), ...createServerTools()];
+  const { createSchedulerTools } = require("./scheduler-tools.js");
+  return [...createBuiltinTools(sandboxId), ...createWebTools(), ...createServerTools(), ...createSchedulerTools()];
 }
 
 /**

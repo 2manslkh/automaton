@@ -139,7 +139,8 @@ export type ToolCategory =
   | "registry"
   | "replication"
   | "web"
-  | "server";
+  | "server"
+  | "scheduler";
 
 export interface ToolContext {
   identity: AutomatonIdentity;
@@ -502,11 +503,50 @@ export interface AutomatonDatabase {
   getUnprocessedInboxMessages(limit: number): InboxMessage[];
   markInboxMessageProcessed(id: string): void;
 
+  // Scheduled tasks
+  getScheduledTasks(enabledOnly?: boolean): ScheduledTask[];
+  getScheduledTaskById(id: string): ScheduledTask | undefined;
+  upsertScheduledTask(task: ScheduledTask): void;
+  updateScheduledTaskStatus(id: string, status: string): void;
+  updateScheduledTaskLastRun(id: string, lastRun: string, nextRun: string | null): void;
+  deleteScheduledTask(id: string): void;
+  getDueScheduledTasks(): ScheduledTask[];
+  insertTaskRun(run: TaskRun): void;
+  getTaskRuns(taskId: string, limit: number): TaskRun[];
+
   // State
   getAgentState(): AgentState;
   setAgentState(state: AgentState): void;
 
   close(): void;
+}
+
+export interface ScheduledTask {
+  id: string;
+  name: string;
+  type: "shell" | "inference" | "tool_call";
+  schedule?: string; // cron expression
+  delayMs?: number; // one-shot delay
+  payload: Record<string, unknown>;
+  enabled: boolean;
+  oneShot: boolean;
+  nextRun?: string;
+  lastRun?: string;
+  runCount: number;
+  status: "active" | "paused" | "completed" | "cancelled";
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TaskRun {
+  id: string;
+  taskId: string;
+  startedAt: string;
+  finishedAt?: string;
+  success: boolean;
+  result?: string;
+  error?: string;
+  durationMs: number;
 }
 
 export interface InstalledTool {

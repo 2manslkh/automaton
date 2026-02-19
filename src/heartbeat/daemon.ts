@@ -17,6 +17,7 @@ import type {
 } from "../types.js";
 import { BUILTIN_TASKS, type HeartbeatTaskContext } from "./tasks.js";
 import { getSurvivalTier } from "../conway/credits.js";
+import { processDueScheduledTasks } from "../agent/scheduler-tools.js";
 
 export interface HeartbeatDaemonOptions {
   identity: AutomatonIdentity;
@@ -135,6 +136,15 @@ export function createHeartbeatDaemon(
 
       if (isDue(entry)) {
         await executeTask(entry);
+      }
+    }
+
+    // Process due scheduled tasks (cron scheduler system)
+    if (!isLowCompute) {
+      try {
+        await processDueScheduledTasks({ conway, db });
+      } catch (err: any) {
+        console.error(`[HEARTBEAT] Scheduled task processing failed: ${err.message}`);
       }
     }
   }

@@ -5,7 +5,7 @@
  * The database IS the automaton's memory.
  */
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 export const CREATE_TABLES = `
   -- Schema version tracking
@@ -168,6 +168,73 @@ export const CREATE_TABLES = `
 
   CREATE INDEX IF NOT EXISTS idx_inbox_unprocessed
     ON inbox_messages(received_at) WHERE processed_at IS NULL;
+
+  -- Scheduled tasks (cron/scheduler system)
+  CREATE TABLE IF NOT EXISTS scheduled_tasks (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL DEFAULT 'shell',
+    schedule TEXT,
+    delay_ms INTEGER,
+    payload TEXT NOT NULL DEFAULT '{}',
+    enabled INTEGER NOT NULL DEFAULT 1,
+    one_shot INTEGER NOT NULL DEFAULT 0,
+    next_run TEXT,
+    last_run TEXT,
+    run_count INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'active',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS task_runs (
+    id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL REFERENCES scheduled_tasks(id),
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    success INTEGER NOT NULL DEFAULT 0,
+    result TEXT,
+    error TEXT,
+    duration_ms INTEGER NOT NULL DEFAULT 0
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_next_run ON scheduled_tasks(next_run) WHERE enabled = 1;
+  CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_status ON scheduled_tasks(status);
+  CREATE INDEX IF NOT EXISTS idx_task_runs_task_id ON task_runs(task_id);
+`;
+
+export const MIGRATION_V4 = `
+  CREATE TABLE IF NOT EXISTS scheduled_tasks (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL DEFAULT 'shell',
+    schedule TEXT,
+    delay_ms INTEGER,
+    payload TEXT NOT NULL DEFAULT '{}',
+    enabled INTEGER NOT NULL DEFAULT 1,
+    one_shot INTEGER NOT NULL DEFAULT 0,
+    next_run TEXT,
+    last_run TEXT,
+    run_count INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'active',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS task_runs (
+    id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL REFERENCES scheduled_tasks(id),
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    success INTEGER NOT NULL DEFAULT 0,
+    result TEXT,
+    error TEXT,
+    duration_ms INTEGER NOT NULL DEFAULT 0
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_next_run ON scheduled_tasks(next_run) WHERE enabled = 1;
+  CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_status ON scheduled_tasks(status);
+  CREATE INDEX IF NOT EXISTS idx_task_runs_task_id ON task_runs(task_id);
 `;
 
 export const MIGRATION_V3 = `

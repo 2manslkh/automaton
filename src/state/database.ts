@@ -24,7 +24,7 @@ import type {
   ReputationEntry,
   InboxMessage,
 } from "../types.js";
-import { SCHEMA_VERSION, CREATE_TABLES, MIGRATION_V2, MIGRATION_V3 } from "./schema.js";
+import { SCHEMA_VERSION, CREATE_TABLES, MIGRATION_V2, MIGRATION_V3, MIGRATION_V4 } from "./schema.js";
 
 export function createDatabase(dbPath: string): AutomatonDatabase {
   // Ensure directory exists
@@ -54,6 +54,10 @@ export function createDatabase(dbPath: string): AutomatonDatabase {
 
   if (currentVersion < 3) {
     db.exec(MIGRATION_V3);
+  }
+
+  if (currentVersion < 4) {
+    db.exec(MIGRATION_V4);
   }
 
   if (currentVersion < SCHEMA_VERSION) {
@@ -434,6 +438,66 @@ export function createDatabase(dbPath: string): AutomatonDatabase {
     ).run(id);
   };
 
+  // ─── Scheduled Tasks ─────────────────────────────────────────
+
+  const getScheduledTasks = (enabledOnly?: boolean): any[] => {
+    const sql = enabledOnly
+      ? "SELECT * FROM scheduled_tasks WHERE enabled = 1 ORDER BY created_at"
+      : "SELECT * FROM scheduled_tasks ORDER BY created_at";
+    return db.prepare(sql).all().map(deserializeScheduledTask);
+  };
+
+  const getScheduledTaskById = (id: string): any | undefined => {
+    const row = db.prepare("SELECT * FROM scheduled_tasks WHERE id = ?").get(id);
+    return row ? deserializeScheduledTask(row) : undefined;
+  };
+
+  const upsertScheduledTask = (task: any): void => {
+    db.prepare(`
+      INSERT OR REPLACE INTO scheduled_tasks (id, name, type, schedule, delay_ms, payload, enabled, one_shot, next_run, last_run, run_count, status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    `).run(
+      task.id, task.name, task.type, task.schedule || null, task.delayMs || null,
+      JSON.stringify(task.payload || {}), task.enabled ? 1 : 0, task.oneShot ? 1 : 0,
+      task.nextRun || null, task.lastRun || null, task.runCount || 0,
+      task.status || "active", task.createdAt || new Date().toISOString(),
+    );
+  };
+
+  const updateScheduledTaskStatus = (id: string, status: string): void => {
+    db.prepare("UPDATE scheduled_tasks SET status = ?, enabled = ?, updated_at = datetime('now') WHERE id = ?")
+      .run(status, status === "active" ? 1 : 0, id);
+  };
+
+  const updateScheduledTaskLastRun = (id: string, lastRun: string, nextRun: string | null): void => {
+    db.prepare("UPDATE scheduled_tasks SET last_run = ?, next_run = ?, run_count = run_count + 1, updated_at = datetime('now') WHERE id = ?")
+      .run(lastRun, nextRun, id);
+  };
+
+  const deleteScheduledTask = (id: string): void => {
+    db.prepare("DELETE FROM task_runs WHERE task_id = ?").run(id);
+    db.prepare("DELETE FROM scheduled_tasks WHERE id = ?").run(id);
+  };
+
+  const getDueScheduledTasks = (): any[] => {
+    const now = new Date().toISOString();
+    return db.prepare(
+      "SELECT * FROM scheduled_tasks WHERE enabled = 1 AND status = 'active' AND next_run IS NOT NULL AND next_run <= ?"
+    ).all(now).map(deserializeScheduledTask);
+  };
+
+  const insertTaskRun = (run: any): void => {
+    db.prepare(`
+      INSERT INTO task_runs (id, task_id, started_at, finished_at, success, result, error, duration_ms)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(run.id, run.taskId, run.startedAt, run.finishedAt || null, run.success ? 1 : 0, run.result || null, run.error || null, run.durationMs || 0);
+  };
+
+  const getTaskRuns = (taskId: string, limit: number): any[] => {
+    return db.prepare("SELECT * FROM task_runs WHERE task_id = ? ORDER BY started_at DESC LIMIT ?")
+      .all(taskId, limit).map(deserializeTaskRun);
+  };
+
   // ─── Agent State ─────────────────────────────────────────────
 
   const getAgentState = (): AgentState => {
@@ -487,6 +551,15 @@ export function createDatabase(dbPath: string): AutomatonDatabase {
     insertInboxMessage,
     getUnprocessedInboxMessages,
     markInboxMessageProcessed,
+    getScheduledTasks,
+    getScheduledTaskById,
+    upsertScheduledTask,
+    updateScheduledTaskStatus,
+    updateScheduledTaskLastRun,
+    deleteScheduledTask,
+    getDueScheduledTasks,
+    insertTaskRun,
+    getTaskRuns,
     getAgentState,
     setAgentState,
     close,
@@ -627,5 +700,37 @@ function deserializeReputation(row: any): ReputationEntry {
     comment: row.comment,
     txHash: row.tx_hash ?? undefined,
     timestamp: row.created_at,
+  };
+}
+
+function deserializeScheduledTask(row: any): any {
+  return {
+    id: row.id,
+    name: row.name,
+    type: row.type,
+    schedule: row.schedule ?? undefined,
+    delayMs: row.delay_ms ?? undefined,
+    payload: JSON.parse(row.payload || "{}"),
+    enabled: !!row.enabled,
+    oneShot: !!row.one_shot,
+    nextRun: row.next_run ?? undefined,
+    lastRun: row.last_run ?? undefined,
+    runCount: row.run_count || 0,
+    status: row.status || "active",
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function deserializeTaskRun(row: any): any {
+  return {
+    id: row.id,
+    taskId: row.task_id,
+    startedAt: row.started_at,
+    finishedAt: row.finished_at ?? undefined,
+    success: !!row.success,
+    result: row.result ?? undefined,
+    error: row.error ?? undefined,
+    durationMs: row.duration_ms || 0,
   };
 }
