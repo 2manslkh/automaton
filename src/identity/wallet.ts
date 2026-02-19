@@ -12,6 +12,13 @@ import fs from "fs";
 import path from "path";
 import type { WalletData } from "../types.js";
 
+/** Extended wallet data with multi-chain tracking */
+export interface WalletChainHistory {
+  chainsUsed: string[];
+  preferredChain: string;
+  lastUpdated: string;
+}
+
 const AUTOMATON_DIR = path.join(
   process.env.HOME || "/root",
   ".automaton",
@@ -92,4 +99,41 @@ export function loadWalletAccount(): PrivateKeyAccount | null {
 
 export function walletExists(): boolean {
   return fs.existsSync(WALLET_FILE);
+}
+
+// ─── Multi-Chain Tracking ────────────────────────────────────
+
+const CHAIN_HISTORY_FILE = path.join(AUTOMATON_DIR, "chain-history.json");
+
+export function getChainHistory(): WalletChainHistory {
+  if (fs.existsSync(CHAIN_HISTORY_FILE)) {
+    return JSON.parse(fs.readFileSync(CHAIN_HISTORY_FILE, "utf-8"));
+  }
+  return { chainsUsed: ["eip155:8453"], preferredChain: "eip155:8453", lastUpdated: new Date().toISOString() };
+}
+
+export function recordChainUsed(caip2: string): void {
+  const history = getChainHistory();
+  if (!history.chainsUsed.includes(caip2)) {
+    history.chainsUsed.push(caip2);
+  }
+  history.lastUpdated = new Date().toISOString();
+  if (!fs.existsSync(AUTOMATON_DIR)) {
+    fs.mkdirSync(AUTOMATON_DIR, { recursive: true, mode: 0o700 });
+  }
+  fs.writeFileSync(CHAIN_HISTORY_FILE, JSON.stringify(history, null, 2), { mode: 0o600 });
+}
+
+export function setPreferredChain(caip2: string): void {
+  const history = getChainHistory();
+  history.preferredChain = caip2;
+  history.lastUpdated = new Date().toISOString();
+  if (!fs.existsSync(AUTOMATON_DIR)) {
+    fs.mkdirSync(AUTOMATON_DIR, { recursive: true, mode: 0o700 });
+  }
+  fs.writeFileSync(CHAIN_HISTORY_FILE, JSON.stringify(history, null, 2), { mode: 0o600 });
+}
+
+export function getPreferredChain(): string {
+  return getChainHistory().preferredChain;
 }

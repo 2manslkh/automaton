@@ -13,17 +13,16 @@ import {
   type PrivateKeyAccount,
 } from "viem";
 import { base, baseSepolia } from "viem/chains";
+import { SUPPORTED_NETWORKS, getNetwork } from "../chain/networks.js";
 
-// USDC contract addresses
-const USDC_ADDRESSES: Record<string, Address> = {
-  "eip155:8453": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", // Base mainnet
-  "eip155:84532": "0x036CbD53842c5426634e7929541eC2318f3dCF7e", // Base Sepolia
-};
+// USDC contract addresses — populated from multi-chain config + legacy entries
+const USDC_ADDRESSES: Record<string, Address> = Object.fromEntries(
+  Object.entries(SUPPORTED_NETWORKS).map(([k, v]) => [k, v.usdcAddress]),
+);
 
-const CHAINS: Record<string, any> = {
-  "eip155:8453": base,
-  "eip155:84532": baseSepolia,
-};
+const CHAINS: Record<string, any> = Object.fromEntries(
+  Object.entries(SUPPORTED_NETWORKS).map(([k, v]) => [k, v.chain]),
+);
 type NetworkId = keyof typeof USDC_ADDRESSES;
 
 const BALANCE_OF_ABI = [
