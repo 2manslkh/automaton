@@ -4,7 +4,7 @@
 
 ## Phase 1: Foundation & Quality (Hours 1-8)
 - [x] **Hour 1**: Audit codebase, create roadmap, set up CI
-- [ ] **Hour 2**: Add comprehensive test coverage (injection-defense, context, survival)
+- [x] **Hour 2**: Add comprehensive test coverage (injection-defense, context, survival)
 - [ ] **Hour 3**: Error handling hardening — retry logic, graceful degradation
 - [ ] **Hour 4**: Context window optimization — smarter summarization, token counting
 - [ ] **Hour 5**: Improve survival tiers — add `warning` tier, better cost tracking
