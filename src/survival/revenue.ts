@@ -74,7 +74,7 @@ export function categoryForType(type: RevenueEventType): "income" | "expense" {
 const REVENUE_EVENTS_KEY = "revenue_events";
 const MAX_EVENTS = 10000;
 
-function getEvents(db: AutomatonDatabase): RevenueEvent[] {
+export function getEvents(db: AutomatonDatabase): RevenueEvent[] {
   const raw = db.getKV(REVENUE_EVENTS_KEY);
   if (!raw) return [];
   try {

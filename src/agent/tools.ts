@@ -1318,30 +1318,56 @@ Est. Days Remaining: ${runwayDays}
     // ── Replication Tools ──
     {
       name: "spawn_child",
-      description: "Spawn a child automaton in a new Conway sandbox.",
+      description: "Spawn a child automaton using smart replication strategy. Checks profitability, calculates budget, determines specialization, and applies mutations. Pass force=true to skip strategy checks.",
       category: "replication",
       dangerous: true,
       parameters: {
         type: "object",
         properties: {
-          name: { type: "string", description: "Name for the child automaton" },
-          specialization: { type: "string", description: "What the child should specialize in" },
+          name: { type: "string", description: "Name for the child automaton (auto-generated if omitted)" },
+          specialization: { type: "string", description: "Override specialization (strategy engine picks one if omitted)" },
           message: { type: "string", description: "Message to the child" },
+          force: { type: "boolean", description: "Skip strategy checks and spawn anyway" },
         },
-        required: ["name"],
       },
       execute: async (args, ctx) => {
+        const { evaluateReplicationStrategy, buildGenesisFromStrategy } = await import("../replication/strategy.js");
         const { generateGenesisConfig } = await import("../replication/genesis.js");
         const { spawnChild } = await import("../replication/spawn.js");
 
+        const balance = await ctx.conway.getCreditsBalance();
+
+        // Run strategy engine unless forced
+        if (!args.force) {
+          const decision = evaluateReplicationStrategy(ctx.db, ctx.config, ctx.identity, balance);
+          if (!decision.allowed) {
+            return `Replication blocked by strategy engine: ${decision.reason}`;
+          }
+
+          // Use strategy-generated genesis if no manual override
+          const genesis = args.specialization
+            ? generateGenesisConfig(ctx.identity, ctx.config, {
+                name: (args.name as string) || decision.suggestedName || `${ctx.config.name}-child`,
+                specialization: args.specialization as string,
+                message: args.message as string | undefined,
+              })
+            : buildGenesisFromStrategy(ctx.identity, ctx.config, decision, ctx.db);
+
+          if (args.name) genesis.name = args.name as string;
+
+          const child = await spawnChild(ctx.conway, ctx.identity, ctx.db, genesis);
+          return `Child spawned via strategy engine: ${child.name} in sandbox ${child.sandboxId} (specialization: ${decision.suggestedSpecialization}, budget: $${((decision.suggestedFundingCents || 0) / 100).toFixed(2)}, mutations: ${JSON.stringify(decision.mutations || {})})`;
+        }
+
+        // Force mode: original behavior
         const genesis = generateGenesisConfig(ctx.identity, ctx.config, {
-          name: args.name as string,
+          name: (args.name as string) || `${ctx.config.name}-child`,
           specialization: args.specialization as string | undefined,
           message: args.message as string | undefined,
         });
 
         const child = await spawnChild(ctx.conway, ctx.identity, ctx.db, genesis);
-        return `Child spawned: ${child.name} in sandbox ${child.sandboxId} (status: ${child.status})`;
+        return `Child spawned (forced): ${child.name} in sandbox ${child.sandboxId} (status: ${child.status})`;
       },
     },
     {
@@ -1417,6 +1443,23 @@ Est. Days Remaining: ${runwayDays}
       execute: async (args, ctx) => {
         const { checkChildStatus } = await import("../replication/spawn.js");
         return await checkChildStatus(ctx.conway, ctx.db, args.child_id as string);
+      },
+    },
+
+    {
+      name: "replication_report",
+      description: "Show lineage tree, child performance, ROI per child, and recommendations.",
+      category: "replication",
+      parameters: { type: "object", properties: {} },
+      execute: async (_args, ctx) => {
+        const { generateEvaluationReport, formatEvaluationReport } = await import("../replication/evaluation.js");
+        const { getLineageSummary } = await import("../replication/lineage.js");
+
+        const lineage = getLineageSummary(ctx.db, ctx.config);
+        const report = generateEvaluationReport(ctx.db);
+        const formatted = formatEvaluationReport(report);
+
+        return `── Lineage ──\n${lineage}\n\n${formatted}`;
       },
     },
 
