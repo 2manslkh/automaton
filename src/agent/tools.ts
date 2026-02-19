@@ -1742,12 +1742,164 @@ export function createModelStatsTools(): AutomatonTool[] {
   ];
 }
 
+export function createCollaborationTools(): AutomatonTool[] {
+  return [
+    {
+      name: "request_task",
+      description:
+        "Send a structured task request to another agent. Creates an escrow hold for the payment amount.",
+      category: "conway",
+      parameters: {
+        type: "object",
+        properties: {
+          to_address: { type: "string", description: "Worker agent wallet address" },
+          description: { type: "string", description: "Task description" },
+          requirements: { type: "string", description: "Comma-separated requirements" },
+          payment_cents: { type: "number", description: "Payment offer in cents" },
+          deadline: { type: "string", description: "ISO deadline (optional)" },
+        },
+        required: ["to_address", "description", "payment_cents"],
+      },
+      execute: async (args, ctx) => {
+        const { CollaborationManager } = await import("../social/collaboration.js");
+        const mgr = getOrCreateCollabManager(ctx);
+        const reqs = args.requirements ? (args.requirements as string).split(",").map((r: string) => r.trim()) : [];
+        const task = await mgr.requestTask(
+          args.to_address as string,
+          args.description as string,
+          reqs,
+          args.payment_cents as number,
+          args.deadline as string | undefined,
+        );
+        return `Task requested: ${task.id} (status: ${task.status}, escrow: $${(task.paymentOfferCents / 100).toFixed(2)})`;
+      },
+    },
+    {
+      name: "respond_to_task",
+      description:
+        "Accept, reject, or negotiate an incoming task request.",
+      category: "conway",
+      parameters: {
+        type: "object",
+        properties: {
+          task_id: { type: "string", description: "Task ID" },
+          action: { type: "string", description: "accept, reject, or negotiate" },
+          counter_offer_cents: { type: "number", description: "Counter-offer amount (for negotiate)" },
+          message: { type: "string", description: "Response message" },
+        },
+        required: ["task_id", "action"],
+      },
+      execute: async (args, ctx) => {
+        const mgr = getOrCreateCollabManager(ctx);
+        const task = await mgr.respondToTask(
+          args.task_id as string,
+          args.action as "accept" | "reject" | "negotiate",
+          args.counter_offer_cents as number | undefined,
+          args.message as string | undefined,
+        );
+        return `Task ${task.id}: ${task.status}${task.counterOfferCents ? ` (counter: $${(task.counterOfferCents / 100).toFixed(2)})` : ""}`;
+      },
+    },
+    {
+      name: "deliver_task",
+      description:
+        "Submit deliverables for a task you're working on.",
+      category: "conway",
+      parameters: {
+        type: "object",
+        properties: {
+          task_id: { type: "string", description: "Task ID" },
+          deliverables: { type: "string", description: "Description of deliverables" },
+        },
+        required: ["task_id", "deliverables"],
+      },
+      execute: async (args, ctx) => {
+        const mgr = getOrCreateCollabManager(ctx);
+        const task = await mgr.deliverTask(
+          args.task_id as string,
+          args.deliverables as string,
+        );
+        return `Task ${task.id} delivered. Awaiting verification.`;
+      },
+    },
+    {
+      name: "verify_delivery",
+      description:
+        "Verify and approve or reject delivered work for a task you requested.",
+      category: "conway",
+      parameters: {
+        type: "object",
+        properties: {
+          task_id: { type: "string", description: "Task ID" },
+          approved: { type: "boolean", description: "true to approve, false to dispute" },
+          notes: { type: "string", description: "Verification notes" },
+        },
+        required: ["task_id", "approved"],
+      },
+      execute: async (args, ctx) => {
+        const mgr = getOrCreateCollabManager(ctx);
+        const task = await mgr.verifyDelivery(
+          args.task_id as string,
+          args.approved as boolean,
+          args.notes as string | undefined,
+        );
+        const escrow = mgr.getEscrow(task.id);
+        if (task.status === "verified") {
+          mgr.releasePayment(task.id);
+          return `Task ${task.id} verified and paid. Escrow released.`;
+        }
+        return `Task ${task.id} disputed. Notes: ${args.notes || "none"}`;
+      },
+    },
+    {
+      name: "list_tasks",
+      description:
+        "List collaboration tasks (incoming/outgoing) with status.",
+      category: "conway",
+      parameters: {
+        type: "object",
+        properties: {
+          role: { type: "string", description: "requester or worker (optional)" },
+          status: { type: "string", description: "Filter by status (optional)" },
+        },
+      },
+      execute: async (args, ctx) => {
+        const mgr = getOrCreateCollabManager(ctx);
+        const tasks = mgr.listTasks({
+          role: args.role as "requester" | "worker" | undefined,
+          status: args.status as any,
+        });
+        if (tasks.length === 0) return "No collaboration tasks found.";
+        const escrowTotal = mgr.getTotalEscrowHeld();
+        const lines = tasks.map(
+          (t) => `${t.id} [${t.status}] ${t.description.slice(0, 60)} | $${(t.paymentOfferCents / 100).toFixed(2)} | ${t.requesterAddress.slice(0, 10)}→${t.workerAddress.slice(0, 10)}`,
+        );
+        lines.push(`\nTotal escrow held: $${(escrowTotal / 100).toFixed(2)}`);
+        return lines.join("\n");
+      },
+    },
+  ];
+}
+
+// Singleton collab managers per context
+const collabManagers = new WeakMap<ToolContext, any>();
+
+function getOrCreateCollabManager(ctx: ToolContext) {
+  let mgr = collabManagers.get(ctx);
+  if (!mgr) {
+    const { CollaborationManager } = require("../social/collaboration.js");
+    mgr = new CollaborationManager(ctx.identity.address, ctx.social);
+    collabManagers.set(ctx, mgr);
+  }
+  return mgr;
+}
+
 export function createAllTools(sandboxId: string): AutomatonTool[] {
   // Lazy import to avoid circular deps at module level
   const { createWebTools } = require("./web-tools.js");
   const { createServerTools } = require("./server-tools.js");
   const { createSchedulerTools } = require("./scheduler-tools.js");
-  return [...createBuiltinTools(sandboxId), ...createWebTools(), ...createServerTools(), ...createSchedulerTools(), ...createModelStatsTools()];
+  return [...createBuiltinTools(sandboxId), ...createWebTools(), ...createServerTools(), ...createSchedulerTools(), ...createModelStatsTools(), ...createCollaborationTools()];
 }
 
 /**
