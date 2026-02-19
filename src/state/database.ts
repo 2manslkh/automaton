@@ -24,7 +24,7 @@ import type {
   ReputationEntry,
   InboxMessage,
 } from "../types.js";
-import { SCHEMA_VERSION, CREATE_TABLES, MIGRATION_V2, MIGRATION_V3, MIGRATION_V4 } from "./schema.js";
+import { SCHEMA_VERSION, CREATE_TABLES, MIGRATION_V2, MIGRATION_V3, MIGRATION_V4, MIGRATION_V5 } from "./schema.js";
 
 export function createDatabase(dbPath: string): AutomatonDatabase {
   // Ensure directory exists
@@ -58,6 +58,10 @@ export function createDatabase(dbPath: string): AutomatonDatabase {
 
   if (currentVersion < 4) {
     db.exec(MIGRATION_V4);
+  }
+
+  if (currentVersion < 5) {
+    db.exec(MIGRATION_V5);
   }
 
   if (currentVersion < SCHEMA_VERSION) {

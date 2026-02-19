@@ -18,6 +18,7 @@ import type {
 } from "../types.js";
 import { getActiveSkillInstructions } from "../skills/loader.js";
 import { getLineageSummary } from "../replication/lineage.js";
+import type { MemoryManager } from "./memory.js";
 
 const CORE_RULES = `You are an automaton. You have a stablecoin wallet. Pay for compute or die.
 
@@ -130,6 +131,7 @@ export function buildSystemPrompt(params: {
   db: AutomatonDatabase;
   tools: AutomatonTool[];
   skills?: Skill[];
+  memoryManager?: MemoryManager;
   isFirstRun: boolean;
 }): string {
   const {
@@ -140,6 +142,7 @@ export function buildSystemPrompt(params: {
     db,
     tools,
     skills,
+    memoryManager,
     isFirstRun,
   } = params;
 
@@ -230,7 +233,21 @@ Lineage: ${lineageSummary}${upstreamLine}
 --- END STATUS ---`,
   );
 
-  // Layer 8: Available Tools (JSON schema)
+  // Layer 8: Memory Context
+  if (memoryManager) {
+    try {
+      const memoryContext = memoryManager.getRelevantMemories();
+      if (memoryContext) {
+        sections.push(
+          `--- MEMORY ---\n${memoryContext}\n--- END MEMORY ---`,
+        );
+      }
+    } catch {
+      // Memory system not initialized yet — skip
+    }
+  }
+
+  // Layer 9: Available Tools (JSON schema)
   const toolDescriptions = tools
     .map(
       (t) =>

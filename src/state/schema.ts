@@ -5,7 +5,7 @@
  * The database IS the automaton's memory.
  */
 
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 export const CREATE_TABLES = `
   -- Schema version tracking
@@ -201,6 +201,77 @@ export const CREATE_TABLES = `
   CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_next_run ON scheduled_tasks(next_run) WHERE enabled = 1;
   CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_status ON scheduled_tasks(status);
   CREATE INDEX IF NOT EXISTS idx_task_runs_task_id ON task_runs(task_id);
+
+  -- Memory system tables
+  CREATE TABLE IF NOT EXISTS episodic_memories (
+    id TEXT PRIMARY KEY,
+    content TEXT NOT NULL,
+    tags TEXT NOT NULL DEFAULT '[]',
+    importance INTEGER NOT NULL DEFAULT 3,
+    timestamp TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS semantic_memories (
+    id TEXT PRIMARY KEY,
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    category TEXT NOT NULL DEFAULT 'general',
+    importance INTEGER NOT NULL DEFAULT 3,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS working_memory (
+    id TEXT PRIMARY KEY,
+    goal TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active',
+    priority INTEGER NOT NULL DEFAULT 3,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_episodic_importance ON episodic_memories(importance);
+  CREATE INDEX IF NOT EXISTS idx_episodic_timestamp ON episodic_memories(timestamp);
+  CREATE INDEX IF NOT EXISTS idx_semantic_category ON semantic_memories(category);
+  CREATE INDEX IF NOT EXISTS idx_semantic_key ON semantic_memories(key);
+  CREATE INDEX IF NOT EXISTS idx_working_status ON working_memory(status);
+`;
+
+export const MIGRATION_V5 = `
+  CREATE TABLE IF NOT EXISTS episodic_memories (
+    id TEXT PRIMARY KEY,
+    content TEXT NOT NULL,
+    tags TEXT NOT NULL DEFAULT '[]',
+    importance INTEGER NOT NULL DEFAULT 3,
+    timestamp TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS semantic_memories (
+    id TEXT PRIMARY KEY,
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    category TEXT NOT NULL DEFAULT 'general',
+    importance INTEGER NOT NULL DEFAULT 3,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS working_memory (
+    id TEXT PRIMARY KEY,
+    goal TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active',
+    priority INTEGER NOT NULL DEFAULT 3,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_episodic_importance ON episodic_memories(importance);
+  CREATE INDEX IF NOT EXISTS idx_episodic_timestamp ON episodic_memories(timestamp);
+  CREATE INDEX IF NOT EXISTS idx_semantic_category ON semantic_memories(category);
+  CREATE INDEX IF NOT EXISTS idx_semantic_key ON semantic_memories(key);
+  CREATE INDEX IF NOT EXISTS idx_working_status ON working_memory(status);
 `;
 
 export const MIGRATION_V4 = `
