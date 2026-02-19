@@ -9,7 +9,7 @@
 - [x] **Hour 4**: Context window optimization — smarter summarization, token counting
 - [x] **Hour 5**: Improve survival tiers — add `warning` tier, better cost tracking
 - [x] **Hour 6**: Add web browsing tool (fetch URLs, scrape pages)
-- [ ] **Hour 7**: Add HTTP server tool (serve endpoints to earn money)
+- [x] **Hour 7**: Add HTTP server tool (serve endpoints to earn money)
 - [ ] **Hour 8**: Add cron/scheduler tool (beyond heartbeat)
 
 ## Phase 2: Revenue & Intelligence (Hours 9-16)

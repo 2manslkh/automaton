@@ -1559,7 +1559,8 @@ Est. Days Remaining: ${runwayDays}
 export function createAllTools(sandboxId: string): AutomatonTool[] {
   // Lazy import to avoid circular deps at module level
   const { createWebTools } = require("./web-tools.js");
-  return [...createBuiltinTools(sandboxId), ...createWebTools()];
+  const { createServerTools } = require("./server-tools.js");
+  return [...createBuiltinTools(sandboxId), ...createWebTools(), ...createServerTools()];
 }
 
 /**
