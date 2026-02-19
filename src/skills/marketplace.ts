@@ -15,7 +15,8 @@ import type {
   AgentCard,
 } from "../types.js";
 import { parseSkillMd } from "./format.js";
-import { discoverAgents, fetchAgentCard } from "../registry/discovery.js";
+// Lazy imports to avoid pulling in ABI parsing at module load time
+const getDiscovery = () => import("../registry/discovery.js");
 
 // ─── Types ─────────────────────────────────────────────────────
 
@@ -565,6 +566,7 @@ export async function discoverRemoteSkills(
     network?: "mainnet" | "testnet";
   } = {},
 ): Promise<RemoteSkillCatalog[]> {
+  const { discoverAgents, fetchAgentCard } = await getDiscovery();
   const agents = await discoverAgents(options.limit || 30, options.network || "mainnet");
   const catalogs: RemoteSkillCatalog[] = [];
 
