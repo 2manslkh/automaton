@@ -10,7 +10,7 @@
 - [x] **Hour 5**: Improve survival tiers — add `warning` tier, better cost tracking
 - [x] **Hour 6**: Add web browsing tool (fetch URLs, scrape pages)
 - [x] **Hour 7**: Add HTTP server tool (serve endpoints to earn money)
-- [ ] **Hour 8**: Add cron/scheduler tool (beyond heartbeat)
+- [x] **Hour 8**: Add cron/scheduler tool (beyond heartbeat)
 
 ## Phase 2: Revenue & Intelligence (Hours 9-16)
 - [ ] **Hour 9**: Revenue tracking system — track earnings, expenses, P&L
