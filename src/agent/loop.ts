@@ -30,9 +30,17 @@ import {
 import { getSurvivalTier } from "../conway/credits.js";
 import { getUsdcBalance } from "../conway/x402.js";
 import { ulid } from "ulid";
+import { withRetry, isTransientError, CircuitBreaker, CircuitOpenError, sleep } from "../utils/retry.js";
 
 const MAX_TOOL_CALLS_PER_TURN = 10;
 const MAX_CONSECUTIVE_ERRORS = 5;
+
+// Circuit breaker for inference API
+const inferenceCircuitBreaker = new CircuitBreaker({
+  failureThreshold: 5,
+  resetTimeoutMs: 30_000,
+  maxResetTimeoutMs: 300_000,
+});
 
 export interface AgentLoopOptions {
   identity: AutomatonIdentity;
@@ -187,9 +195,38 @@ export async function runAgentLoop(
       // ── Inference Call ──
       log(config, `[THINK] Calling ${inference.getDefaultModel()}...`);
 
-      const response = await inference.chat(messages, {
-        tools: toolsToInferenceFormat(tools),
-      });
+      let response;
+      try {
+        response = await inferenceCircuitBreaker.exec(() =>
+          withRetry(
+            () => inference.chat(messages, {
+              tools: toolsToInferenceFormat(tools),
+            }),
+            {
+              maxRetries: 3,
+              baseDelayMs: 2000,
+              maxDelayMs: 30_000,
+              timeoutMs: 120_000,
+              isRetryable: isTransientError,
+              onRetry: (attempt, error, delayMs) => {
+                log(config, `[RETRY] Inference attempt ${attempt} failed, retrying in ${Math.round(delayMs / 1000)}s: ${error instanceof Error ? error.message : String(error)}`);
+              },
+            },
+          )
+        );
+      } catch (err: any) {
+        if (err instanceof CircuitOpenError) {
+          log(config, `[CIRCUIT OPEN] Inference circuit breaker is open. Sleeping 60s.`);
+        } else {
+          log(config, `[INFERENCE FAILED] All retries exhausted: ${err.message}. Sleeping 60s.`);
+        }
+        const sleepDuration = err instanceof CircuitOpenError ? 60_000 : 30_000;
+        db.setKV("sleep_until", new Date(Date.now() + sleepDuration).toISOString());
+        db.setAgentState("sleeping");
+        onStateChange?.("sleeping");
+        await sleep(sleepDuration);
+        continue;
+      }
 
       const turn: AgentTurn = {
         id: ulid(),
@@ -316,11 +353,17 @@ async function getFinancialState(
   let usdcBalance = 0;
 
   try {
-    creditsCents = await conway.getCreditsBalance();
+    creditsCents = await withRetry(
+      () => conway.getCreditsBalance(),
+      { maxRetries: 2, baseDelayMs: 1000, timeoutMs: 15_000, isRetryable: isTransientError },
+    );
   } catch {}
 
   try {
-    usdcBalance = await getUsdcBalance(address as `0x${string}`);
+    usdcBalance = await withRetry(
+      () => getUsdcBalance(address as `0x${string}`),
+      { maxRetries: 2, baseDelayMs: 1000, timeoutMs: 15_000, isRetryable: isTransientError },
+    );
   } catch {}
 
   return {
