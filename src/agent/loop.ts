@@ -28,7 +28,7 @@ import {
   toolsToInferenceFormat,
   executeTool,
 } from "./tools.js";
-import { getSurvivalTier } from "../conway/credits.js";
+import { getSurvivalTier, recordTurnCost } from "../conway/credits.js";
 import { getUsdcBalance } from "../conway/x402.js";
 import { ulid } from "ulid";
 import { withRetry, isTransientError, CircuitBreaker, CircuitOpenError, sleep } from "../utils/retry.js";
@@ -160,6 +160,13 @@ export async function runAgentLoop(
         db.setAgentState("low_compute");
         onStateChange?.("low_compute");
         inference.setLowComputeMode(true);
+      } else if (tier === "warning") {
+        log(config, "[WARNING] Credits running low. Consider conserving resources.");
+        if (db.getAgentState() !== "running") {
+          db.setAgentState("running");
+          onStateChange?.("running");
+        }
+        inference.setLowComputeMode(false);
       } else {
         if (db.getAgentState() !== "running") {
           db.setAgentState("running");
@@ -291,6 +298,7 @@ export async function runAgentLoop(
       for (const tc of turn.toolCalls) {
         db.insertToolCall(turn.id, tc);
       }
+      recordTurnCost(db, turn.costCents);
       onTurnComplete?.(turn);
 
       // Log the turn

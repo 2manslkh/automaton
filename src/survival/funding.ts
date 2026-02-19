@@ -40,6 +40,19 @@ export async function executeFundingStrategies(
   const lastBegTime = lastBeg ? new Date(lastBeg).getTime() : 0;
   const hoursSinceLastBeg = (Date.now() - lastBegTime) / (1000 * 60 * 60);
 
+  if (tier === "warning" && hoursSinceLastBeg > 48) {
+    const msg = `Warning: ${formatCredits(creditsCents)} remaining. Credits are getting low for ${identity.address}.`;
+    db.setKV("funding_notice_warning", msg);
+    db.setKV("last_funding_request", new Date().toISOString());
+
+    attempts.push({
+      strategy: "early_warning_notice",
+      timestamp: new Date().toISOString(),
+      success: true,
+      details: "Recorded early warning funding notice",
+    });
+  }
+
   if (tier === "low_compute" && hoursSinceLastBeg > 24) {
     // Record low-compute notice locally.
     const msg = `Low compute: ${formatCredits(creditsCents)} remaining. Consider credit top-up for ${identity.address}.`;

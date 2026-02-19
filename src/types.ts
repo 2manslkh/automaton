@@ -202,12 +202,13 @@ export interface FinancialState {
   lastChecked: string;
 }
 
-export type SurvivalTier = "normal" | "low_compute" | "critical" | "dead";
+export type SurvivalTier = "normal" | "warning" | "low_compute" | "critical" | "dead";
 
 export const SURVIVAL_THRESHOLDS = {
-  normal: 50, // > $0.50 in cents
-  low_compute: 10, // $0.10 - $0.50
-  critical: 10, // < $0.10
+  normal: 500, // > $5.00 in cents
+  warning: 200, // $2.00 - $5.00
+  low_compute: 50, // $0.50 - $2.00
+  critical: 10, // $0.10 - $0.50
   dead: 0,
 } as const;
 

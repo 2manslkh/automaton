@@ -7,7 +7,7 @@
 - [x] **Hour 2**: Add comprehensive test coverage (injection-defense, context, survival)
 - [x] **Hour 3**: Error handling hardening — retry logic, graceful degradation
 - [x] **Hour 4**: Context window optimization — smarter summarization, token counting
-- [ ] **Hour 5**: Improve survival tiers — add `warning` tier, better cost tracking
+- [x] **Hour 5**: Improve survival tiers — add `warning` tier, better cost tracking
 - [ ] **Hour 6**: Add web browsing tool (fetch URLs, scrape pages)
 - [ ] **Hour 7**: Add HTTP server tool (serve endpoints to earn money)
 - [ ] **Hour 8**: Add cron/scheduler tool (beyond heartbeat)

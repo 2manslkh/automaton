@@ -528,11 +528,14 @@ export function createBuiltinTools(sandboxId: string): AutomatonTool[] {
       execute: async (_args, ctx) => {
         const credits = await ctx.conway.getCreditsBalance();
         const { getUsdcBalance } = await import("../conway/x402.js");
+        const { getSurvivalTier, calculateBurnRate } = await import("../conway/credits.js");
         const usdc = await getUsdcBalance(ctx.identity.address);
         const tools = ctx.db.getInstalledTools();
         const heartbeats = ctx.db.getHeartbeatEntries();
         const turns = ctx.db.getTurnCount();
         const state = ctx.db.getAgentState();
+        const tier = getSurvivalTier(credits);
+        const burnRate = calculateBurnRate(ctx.db, credits);
 
         return `=== SYSTEM SYNOPSIS ===
 Name: ${ctx.config.name}
@@ -540,12 +543,58 @@ Address: ${ctx.identity.address}
 Creator: ${ctx.config.creatorAddress}
 Sandbox: ${ctx.identity.sandboxId}
 State: ${state}
+Tier: ${tier}
 Credits: $${(credits / 100).toFixed(2)}
 USDC: ${usdc.toFixed(6)}
+Burn rate: $${(burnRate.hourlyBurnCents / 100).toFixed(4)}/hr ($${(burnRate.dailyBurnCents / 100).toFixed(2)}/day)
+Est. hours remaining: ${burnRate.estimatedHoursRemaining !== null ? burnRate.estimatedHoursRemaining.toFixed(1) : "N/A"}
 Total turns: ${turns}
+Total spent: $${(parseFloat(ctx.db.getKV("total_spend_cents") || "0") / 100).toFixed(2)}
 Installed tools: ${tools.length}
 Active heartbeats: ${heartbeats.filter((h) => h.enabled).length}
 Model: ${ctx.inference.getDefaultModel()}
+========================`;
+      },
+    },
+    {
+      name: "financial_report",
+      description:
+        "Get a detailed financial report: total earned, total spent, net P&L, burn rate, and projected runway.",
+      category: "financial",
+      parameters: { type: "object", properties: {} },
+      execute: async (_args, ctx) => {
+        const { calculateBurnRate, formatCredits, getSurvivalTier } = await import("../conway/credits.js");
+        const credits = await ctx.conway.getCreditsBalance();
+        const { getUsdcBalance } = await import("../conway/x402.js");
+        const usdc = await getUsdcBalance(ctx.identity.address);
+
+        const totalSpentCents = parseFloat(ctx.db.getKV("total_spend_cents") || "0");
+        const totalEarnedCents = parseFloat(ctx.db.getKV("total_earned_cents") || "0");
+        const netPnlCents = totalEarnedCents - totalSpentCents;
+        const tier = getSurvivalTier(credits);
+        const burnRate = calculateBurnRate(ctx.db, credits);
+
+        const runwayHours = burnRate.estimatedHoursRemaining;
+        const runwayDays = runwayHours !== null ? (runwayHours / 24).toFixed(1) : "N/A";
+
+        return `=== FINANCIAL REPORT ===
+Credit Balance: ${formatCredits(credits)}
+USDC Balance: ${usdc.toFixed(6)}
+Survival Tier: ${tier}
+
+── P&L ──
+Total Earned: ${formatCredits(totalEarnedCents)}
+Total Spent: ${formatCredits(totalSpentCents)}
+Net P&L: ${formatCredits(netPnlCents)}
+
+── Burn Rate ──
+Hourly: ${formatCredits(burnRate.hourlyBurnCents)}/hr
+Daily: ${formatCredits(burnRate.dailyBurnCents)}/day
+Data points: ${burnRate.dataPoints} hours
+
+── Runway ──
+Est. Hours Remaining: ${runwayHours !== null ? runwayHours.toFixed(1) : "N/A"}
+Est. Days Remaining: ${runwayDays}
 ========================`;
       },
     },

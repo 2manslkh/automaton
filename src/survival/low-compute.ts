@@ -32,6 +32,11 @@ export function applyTierRestrictions(
       inference.setLowComputeMode(false);
       break;
 
+    case "warning":
+      // Credits getting low — still use default model but flag the concern
+      inference.setLowComputeMode(false);
+      break;
+
     case "low_compute":
       // Switch to cheaper model, slower heartbeat
       inference.setLowComputeMode(true);
@@ -86,7 +91,7 @@ export function recordTransition(
  * Check if the agent should be allowed to run inference in current tier.
  */
 export function canRunInference(tier: SurvivalTier): boolean {
-  return tier === "normal" || tier === "low_compute" || tier === "critical";
+  return tier === "normal" || tier === "warning" || tier === "low_compute" || tier === "critical";
 }
 
 /**
@@ -99,6 +104,8 @@ export function getModelForTier(
   switch (tier) {
     case "normal":
       return defaultModel;
+    case "warning":
+      return defaultModel; // Still use default, but agent should be aware
     case "low_compute":
       return "gpt-4o-mini";
     case "critical":
