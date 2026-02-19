@@ -1554,6 +1554,15 @@ Est. Days Remaining: ${runwayDays}
 }
 
 /**
+ * Create all builtin tools including web tools.
+ */
+export function createAllTools(sandboxId: string): AutomatonTool[] {
+  // Lazy import to avoid circular deps at module level
+  const { createWebTools } = require("./web-tools.js");
+  return [...createBuiltinTools(sandboxId), ...createWebTools()];
+}
+
+/**
  * Convert AutomatonTool list to OpenAI-compatible tool definitions.
  */
 export function toolsToInferenceFormat(
