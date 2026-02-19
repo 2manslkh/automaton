@@ -140,7 +140,8 @@ export type ToolCategory =
   | "replication"
   | "web"
   | "server"
-  | "scheduler";
+  | "scheduler"
+  | "migration";
 
 export interface ToolContext {
   identity: AutomatonIdentity;
