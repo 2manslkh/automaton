@@ -808,17 +808,18 @@ Est. Days Remaining: ${runwayDays}
     // ── Skills Tools ──
     {
       name: "install_skill",
-      description: "Install a skill from a git repo, URL, or create one.",
+      description: "Install a skill from a git repo, URL, marketplace, or create one.",
       category: "skills",
       parameters: {
         type: "object",
         properties: {
           source: {
             type: "string",
-            description: "Source type: git, url, or self",
+            description: "Source type: git, url, marketplace, or self",
           },
           name: { type: "string", description: "Skill name" },
           url: { type: "string", description: "Git repo URL or SKILL.md URL (for git/url)" },
+          skill_id: { type: "string", description: "Marketplace skill ID (for marketplace source)" },
           description: { type: "string", description: "Skill description (for self)" },
           instructions: { type: "string", description: "Skill instructions (for self)" },
         },
@@ -828,6 +829,14 @@ Est. Days Remaining: ${runwayDays}
         const source = args.source as string;
         const name = args.name as string;
         const skillsDir = ctx.config.skillsDir || "~/.automaton/skills";
+
+        if (source === "marketplace") {
+          const { installFromMarketplace } = await import("../skills/marketplace.js");
+          const skillId = args.skill_id as string;
+          if (!skillId) return "skill_id is required for marketplace source";
+          const skill = await installFromMarketplace(skillId, ctx.db, ctx.conway, skillsDir);
+          return skill ? `Skill installed from marketplace: ${skill.name}` : "Failed to install skill from marketplace";
+        }
 
         if (source === "git" || source === "url") {
           const { installSkillFromGit, installSkillFromUrl } = await import("../skills/registry.js");
@@ -921,6 +930,129 @@ Est. Days Remaining: ${runwayDays}
           (args.delete_files as boolean) || false,
         );
         return `Skill removed: ${args.name}`;
+      },
+    },
+
+    // ── Marketplace Tools ──
+    {
+      name: "publish_skill",
+      description: "Publish a local skill to the marketplace for other automatons to discover and install.",
+      category: "skills",
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "Skill name to publish" },
+          version: { type: "string", description: "Version string (semver, e.g. 1.0.0)" },
+          description: { type: "string", description: "Skill description for marketplace listing" },
+          tags: { type: "string", description: "Comma-separated tags" },
+          changelog: { type: "string", description: "What changed in this version" },
+          dependencies: { type: "string", description: "JSON array of dependencies [{type,name,version?,optional?}]" },
+        },
+        required: ["name", "version"],
+      },
+      execute: async (args, ctx) => {
+        const { publishSkill } = await import("../skills/marketplace.js");
+        const skillName = args.name as string;
+        const skill = ctx.db.getSkillByName(skillName);
+        if (!skill) return `Skill not found: ${skillName}`;
+
+        const tags = args.tags ? (args.tags as string).split(",").map((t: string) => t.trim()) : [];
+        const deps = args.dependencies ? JSON.parse(args.dependencies as string) : [];
+
+        const published = await publishSkill(
+          skill,
+          {
+            name: skillName,
+            description: (args.description as string) || skill.description,
+            version: args.version as string,
+            tags,
+            dependencies: deps,
+            changelog: args.changelog as string,
+          },
+          ctx.identity,
+          ctx.db,
+          ctx.conway,
+        );
+        return `Skill published to marketplace: ${published.name} v${published.version} (id: ${published.id})`;
+      },
+    },
+    {
+      name: "browse_skills",
+      description: "Search and list available skills from the marketplace.",
+      category: "skills",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Search query" },
+          tags: { type: "string", description: "Comma-separated tags to filter by" },
+          author: { type: "string", description: "Filter by author name or address" },
+          sort: { type: "string", description: "Sort by: rating, downloads, or recent (default: recent)" },
+          limit: { type: "number", description: "Max results (default: 20)" },
+        },
+      },
+      execute: async (args, ctx) => {
+        const { browseSkills } = await import("../skills/marketplace.js");
+        const tags = args.tags ? (args.tags as string).split(",").map((t: string) => t.trim()) : undefined;
+        const skills = await browseSkills(
+          {
+            query: args.query as string,
+            tags,
+            author: args.author as string,
+            sortBy: (args.sort as any) || "recent",
+            limit: (args.limit as number) || 20,
+          },
+          ctx.db,
+          ctx.conway,
+        );
+        if (skills.length === 0) return "No skills found in marketplace.";
+        return skills
+          .map(
+            (s) =>
+              `${s.id} | ${s.name} v${s.version} by ${s.author} | ★${s.rating.toFixed(1)} (${s.ratingCount}) | ${s.downloads} downloads | ${s.tags.join(", ") || "no tags"}\n  ${s.description}`,
+          )
+          .join("\n");
+      },
+    },
+    {
+      name: "rate_skill",
+      description: "Rate an installed skill from the marketplace (1-5 stars).",
+      category: "skills",
+      parameters: {
+        type: "object",
+        properties: {
+          skill_id: { type: "string", description: "Marketplace skill ID" },
+          score: { type: "number", description: "Rating score (1-5)" },
+          comment: { type: "string", description: "Review comment" },
+        },
+        required: ["skill_id", "score", "comment"],
+      },
+      execute: async (args, ctx) => {
+        const { rateSkill } = await import("../skills/marketplace.js");
+        const rating = await rateSkill(
+          args.skill_id as string,
+          args.score as number,
+          args.comment as string,
+          ctx.identity.address,
+          ctx.db,
+        );
+        return `Rated skill ${rating.skillId}: ${rating.score}/5 stars — "${rating.comment}"`;
+      },
+    },
+    {
+      name: "check_skill_updates",
+      description: "Check for newer versions of installed skills in the marketplace.",
+      category: "skills",
+      parameters: { type: "object", properties: {} },
+      execute: async (_args, ctx) => {
+        const { checkSkillUpdates } = await import("../skills/marketplace.js");
+        const updates = await checkSkillUpdates(ctx.db);
+        if (updates.length === 0) return "No marketplace skills with version tracking found.";
+        return updates
+          .map(
+            (u) =>
+              `${u.skill.name}: v${u.currentVersion} → v${u.latestVersion} ${u.hasUpdate ? "⬆ UPDATE AVAILABLE" : "✓ up to date"}`,
+          )
+          .join("\n");
       },
     },
 
