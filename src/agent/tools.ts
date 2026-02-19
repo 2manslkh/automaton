@@ -1571,12 +1571,51 @@ Est. Days Remaining: ${runwayDays}
 /**
  * Create all builtin tools including web tools.
  */
+export function createModelStatsTools(): AutomatonTool[] {
+  return [
+    {
+      name: "model_stats",
+      description:
+        "Show model usage breakdown, cost per model, and savings from intelligent routing.",
+      parameters: {
+        type: "object",
+        properties: {},
+      },
+      category: "survival" as ToolCategory,
+      execute: async (
+        _args: Record<string, unknown>,
+        context: ToolContext,
+      ): Promise<string> => {
+        const { getModelStats } = await import("./model-router.js");
+        const stats = getModelStats(context.db);
+        if (stats.totalCalls === 0) {
+          return "No model routing stats yet. Stats are recorded after each inference call.";
+        }
+        const lines: string[] = [
+          `=== Model Routing Stats ===`,
+          `Total calls: ${stats.totalCalls}`,
+          `Routed cheap: ${stats.routedCheap} (${((stats.routedCheap / stats.totalCalls) * 100).toFixed(1)}%)`,
+          `Routed expensive: ${stats.routedExpensive} (${((stats.routedExpensive / stats.totalCalls) * 100).toFixed(1)}%)`,
+          `Estimated savings: $${(stats.estimatedSavingsCents / 100).toFixed(4)}`,
+          ``,
+          `--- Per Model ---`,
+        ];
+        for (const [model, calls] of Object.entries(stats.callsByModel)) {
+          const cost = stats.costByModel[model] || 0;
+          lines.push(`${model}: ${calls} calls, $${(cost / 100).toFixed(4)} cost`);
+        }
+        return lines.join("\n");
+      },
+    },
+  ];
+}
+
 export function createAllTools(sandboxId: string): AutomatonTool[] {
   // Lazy import to avoid circular deps at module level
   const { createWebTools } = require("./web-tools.js");
   const { createServerTools } = require("./server-tools.js");
   const { createSchedulerTools } = require("./scheduler-tools.js");
-  return [...createBuiltinTools(sandboxId), ...createWebTools(), ...createServerTools(), ...createSchedulerTools()];
+  return [...createBuiltinTools(sandboxId), ...createWebTools(), ...createServerTools(), ...createSchedulerTools(), ...createModelStatsTools()];
 }
 
 /**

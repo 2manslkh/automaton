@@ -29,6 +29,7 @@ import {
   executeTool,
 } from "./tools.js";
 import { getSurvivalTier, recordTurnCost } from "../conway/credits.js";
+import { routeModel, recordModelUsage, type ModelRoutingDecision } from "./model-router.js";
 import { getUsdcBalance } from "../conway/x402.js";
 import { ulid } from "ulid";
 import { withRetry, isTransientError, CircuitBreaker, CircuitOpenError, sleep } from "../utils/retry.js";
@@ -205,14 +206,28 @@ export async function runAgentLoop(
       // Clear pending input after use
       pendingInput = undefined;
 
+      // ── Model Routing ──
+      const currentTier = getSurvivalTier(financial.creditsCents);
+      const routingDecision: ModelRoutingDecision = routeModel(
+        messages,
+        currentTier,
+        inference.getDefaultModel(),
+      );
+      const selectedModel = routingDecision.model;
+
+      if (routingDecision.complexity === "simple") {
+        log(config, `[ROUTE] Using cheap model "${selectedModel}" — ${routingDecision.reason}`);
+      }
+
       // ── Inference Call ──
-      log(config, `[THINK] Calling ${inference.getDefaultModel()}...`);
+      log(config, `[THINK] Calling ${selectedModel}...`);
 
       let response;
       try {
         response = await inferenceCircuitBreaker.exec(() =>
           withRetry(
             () => inference.chat(messages, {
+              model: selectedModel,
               tools: toolsToInferenceFormat(tools),
             }),
             {
@@ -299,6 +314,19 @@ export async function runAgentLoop(
         db.insertToolCall(turn.id, tc);
       }
       recordTurnCost(db, turn.costCents);
+
+      // Track model routing stats
+      const frontierCostCents = routingDecision.complexity === "simple"
+        ? estimateCostCents(response.usage, config.inferenceModel)
+        : undefined;
+      recordModelUsage(db, selectedModel, turn.costCents, routingDecision, frontierCostCents);
+
+      if (routingDecision.complexity === "simple" && frontierCostCents) {
+        const saved = frontierCostCents - turn.costCents;
+        if (saved > 0) {
+          log(config, `[SAVINGS] Saved ~${(saved / 100).toFixed(4)} credits by using ${selectedModel} instead of frontier model`);
+        }
+      }
 
       // Log inference cost as a revenue expense event
       try {
