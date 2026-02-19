@@ -2,7 +2,7 @@
  * Context Window Management
  *
  * Manages the conversation history for the agent loop.
- * Handles summarization to keep within token limits.
+ * Uses token budgets for intelligent trimming and summarization.
  */
 
 import type {
@@ -10,10 +10,26 @@ import type {
   AgentTurn,
   AutomatonDatabase,
   InferenceClient,
+  AgentState,
 } from "../types.js";
+import {
+  estimateTokens,
+  estimateMessagesTokens,
+  TOKEN_BUDGETS,
+  type BudgetMode,
+} from "../utils/tokens.js";
 
 const MAX_CONTEXT_TURNS = 20;
 const SUMMARY_THRESHOLD = 15;
+
+/**
+ * Determine the budget mode from agent state.
+ */
+export function getBudgetMode(state?: AgentState): BudgetMode {
+  if (state === "critical") return "critical";
+  if (state === "low_compute") return "low_compute";
+  return "normal";
+}
 
 /**
  * Build the message array for the next inference call.
@@ -30,7 +46,6 @@ export function buildContextMessages(
 
   // Add recent turns as conversation history
   for (const turn of recentTurns) {
-    // The turn's input (if any) as a user message
     if (turn.input) {
       messages.push({
         role: "user",
@@ -38,14 +53,12 @@ export function buildContextMessages(
       });
     }
 
-    // The agent's thinking as assistant message
     if (turn.thinking) {
       const msg: ChatMessage = {
         role: "assistant",
         content: turn.thinking,
       };
 
-      // If there were tool calls, include them
       if (turn.toolCalls.length > 0) {
         msg.tool_calls = turn.toolCalls.map((tc) => ({
           id: tc.id,
@@ -58,7 +71,6 @@ export function buildContextMessages(
       }
       messages.push(msg);
 
-      // Add tool results
       for (const tc of turn.toolCalls) {
         messages.push({
           role: "tool",
@@ -71,7 +83,6 @@ export function buildContextMessages(
     }
   }
 
-  // Add pending input if any
   if (pendingInput) {
     messages.push({
       role: "user",
@@ -83,24 +94,74 @@ export function buildContextMessages(
 }
 
 /**
- * Trim context to fit within limits.
- * Keeps the system prompt and most recent turns.
+ * Trim context to fit within token budget.
+ * Uses token estimation to be smarter than simple turn counting.
+ * Falls back to turn-count limit as a safety net.
  */
 export function trimContext(
   turns: AgentTurn[],
-  maxTurns: number = MAX_CONTEXT_TURNS,
+  options?: {
+    maxTurns?: number;
+    systemPromptTokens?: number;
+    state?: AgentState;
+  },
 ): AgentTurn[] {
-  if (turns.length <= maxTurns) {
-    return turns;
+  const maxTurns = options?.maxTurns ?? MAX_CONTEXT_TURNS;
+  const state = options?.state;
+  const budgetMode = getBudgetMode(state);
+  const tokenBudget = TOKEN_BUDGETS[budgetMode];
+  const systemTokens = options?.systemPromptTokens ?? 0;
+
+  // Available tokens for turns (reserve some for the response)
+  const responseReserve = budgetMode === "critical" ? 2000 : 4000;
+  const availableTokens = tokenBudget - systemTokens - responseReserve;
+
+  if (availableTokens <= 0 || turns.length === 0) {
+    // If system prompt alone exceeds budget, keep at most 2 recent turns
+    return turns.slice(-2);
   }
 
-  // Keep the most recent turns
-  return turns.slice(-maxTurns);
+  // First, apply hard turn limit
+  let trimmed = turns.length > maxTurns ? turns.slice(-maxTurns) : [...turns];
+
+  // Then, trim by token budget — remove oldest turns until we fit
+  let totalTokens = estimateTurnsTokens(trimmed);
+
+  while (trimmed.length > 1 && totalTokens > availableTokens) {
+    trimmed.shift();
+    totalTokens = estimateTurnsTokens(trimmed);
+  }
+
+  return trimmed;
+}
+
+/**
+ * Estimate total tokens for an array of turns.
+ */
+export function estimateTurnsTokens(turns: AgentTurn[]): number {
+  let total = 0;
+  for (const turn of turns) {
+    // Input message
+    if (turn.input) {
+      total += 4 + estimateTokens(`[${turn.inputSource || "system"}] ${turn.input}`);
+    }
+    // Thinking/assistant message
+    if (turn.thinking) {
+      total += 4 + estimateTokens(turn.thinking);
+    }
+    // Tool calls and results
+    for (const tc of turn.toolCalls) {
+      total += 4 + estimateTokens(tc.name);
+      total += estimateTokens(JSON.stringify(tc.arguments));
+      total += 4 + estimateTokens(tc.error ? `Error: ${tc.error}` : tc.result);
+    }
+  }
+  return total;
 }
 
 /**
  * Summarize old turns into a compact context entry.
- * Used when context grows too large.
+ * Includes tool results summary and active goals tracking.
  */
 export async function summarizeTurns(
   turns: AgentTurn[],
@@ -108,38 +169,76 @@ export async function summarizeTurns(
 ): Promise<string> {
   if (turns.length === 0) return "No previous activity.";
 
-  const turnSummaries = turns.map((t) => {
-    const tools = t.toolCalls
-      .map((tc) => `${tc.name}(${tc.error ? "FAILED" : "ok"})`)
-      .join(", ");
-    return `[${t.timestamp}] ${t.inputSource || "self"}: ${t.thinking.slice(0, 100)}${tools ? ` | tools: ${tools}` : ""}`;
-  });
+  // Extract structured info from turns
+  const toolUsage: Record<string, { ok: number; fail: number }> = {};
+  const goals: Set<string> = new Set();
+  const errors: string[] = [];
 
-  // If few enough turns, just return the summaries directly
-  if (turns.length <= 5) {
-    return `Previous activity summary:\n${turnSummaries.join("\n")}`;
+  for (const t of turns) {
+    for (const tc of t.toolCalls) {
+      if (!toolUsage[tc.name]) toolUsage[tc.name] = { ok: 0, fail: 0 };
+      if (tc.error) {
+        toolUsage[tc.name].fail++;
+        errors.push(`${tc.name}: ${tc.error.slice(0, 80)}`);
+      } else {
+        toolUsage[tc.name].ok++;
+      }
+    }
+
+    // Extract goals from thinking (look for goal-like patterns)
+    const goalMatches = t.thinking.match(/(?:goal|objective|plan|todo|task)[:=]\s*(.+?)(?:\n|$)/gi);
+    if (goalMatches) {
+      for (const g of goalMatches) goals.add(g.trim().slice(0, 100));
+    }
   }
 
-  // For many turns, use inference to create a summary
+  const toolSummary = Object.entries(toolUsage)
+    .map(([name, counts]) => `${name}(✓${counts.ok}${counts.fail > 0 ? ` ✗${counts.fail}` : ""})`)
+    .join(", ");
+
+  const turnSummaries = turns.map((t) => {
+    const tools = t.toolCalls
+      .map((tc) => `${tc.name}(${tc.error ? "FAIL" : "ok"})`)
+      .join(", ");
+    const resultSnippets = t.toolCalls
+      .filter((tc) => !tc.error && tc.result)
+      .map((tc) => `${tc.name}→${tc.result.slice(0, 60)}`)
+      .join("; ");
+    return `[${t.timestamp}] ${t.inputSource || "self"}: ${t.thinking.slice(0, 120)}${tools ? ` | tools: ${tools}` : ""}${resultSnippets ? ` | results: ${resultSnippets}` : ""}`;
+  });
+
+  // Build the structured summary header
+  const header = [
+    `Turns: ${turns.length} (${turns[0].timestamp} → ${turns[turns.length - 1].timestamp})`,
+    toolSummary ? `Tools used: ${toolSummary}` : null,
+    errors.length > 0 ? `Errors: ${errors.slice(-3).join("; ")}` : null,
+    goals.size > 0 ? `Active goals: ${[...goals].slice(0, 3).join("; ")}` : null,
+  ].filter(Boolean).join("\n");
+
+  // For few turns, return structured summary directly
+  if (turns.length <= 5) {
+    return `Previous activity summary:\n${header}\n${turnSummaries.join("\n")}`;
+  }
+
+  // For many turns, use inference to compress
   try {
     const response = await inference.chat([
       {
         role: "system",
         content:
-          "Summarize the following agent activity log into a concise paragraph. Focus on: what was accomplished, what failed, current goals, and important context for the next turn.",
+          "Summarize the following agent activity into a concise paragraph. Include: what was accomplished, what failed, current goals, tool usage patterns, and important context for continuing work. Be specific about outcomes.",
       },
       {
         role: "user",
-        content: turnSummaries.join("\n"),
+        content: `${header}\n\nDetailed log:\n${turnSummaries.join("\n")}`,
       },
     ], {
       maxTokens: 500,
       temperature: 0,
     });
 
-    return `Previous activity summary:\n${response.message.content}`;
+    return `Previous activity summary:\n${header}\n\n${response.message.content}`;
   } catch {
-    // Fallback: just use the raw summaries
-    return `Previous activity summary:\n${turnSummaries.slice(-5).join("\n")}`;
+    return `Previous activity summary:\n${header}\n${turnSummaries.slice(-5).join("\n")}`;
   }
 }

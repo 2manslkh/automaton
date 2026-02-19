@@ -21,7 +21,8 @@ import type {
   SocialClientInterface,
 } from "../types.js";
 import { buildSystemPrompt, buildWakeupPrompt } from "./system-prompt.js";
-import { buildContextMessages, trimContext } from "./context.js";
+import { buildContextMessages, trimContext, estimateTurnsTokens } from "./context.js";
+import { estimateTokens } from "../utils/tokens.js";
 import {
   createBuiltinTools,
   toolsToInferenceFormat,
@@ -168,7 +169,6 @@ export async function runAgentLoop(
       }
 
       // Build context
-      const recentTurns = trimContext(db.getRecentTurns(20));
       const systemPrompt = buildSystemPrompt({
         identity,
         config,
@@ -178,6 +178,12 @@ export async function runAgentLoop(
         tools,
         skills,
         isFirstRun,
+      });
+
+      const systemPromptTokens = estimateTokens(systemPrompt);
+      const recentTurns = trimContext(db.getRecentTurns(40), {
+        systemPromptTokens,
+        state: db.getAgentState(),
       });
 
       const messages = buildContextMessages(
